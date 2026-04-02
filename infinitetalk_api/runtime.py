@@ -71,6 +71,24 @@ class InfiniteTalkRuntime:
 
             cfg = WAN_CONFIGS[self.config.task]
             device_id = int(os.getenv("LOCAL_RANK", "0"))
+            wav2vec_dir = self._resolve_existing_dir(
+                self.config.wav2vec_dir,
+                "INFINITETALK_WAV2VEC_DIR",
+            )
+            ckpt_dir = self._resolve_existing_dir(
+                self.config.ckpt_dir,
+                "INFINITETALK_CKPT_DIR",
+            )
+            infinitetalk_path = self._resolve_existing_file(
+                self.config.infinitetalk_dir,
+                "INFINITETALK_MODEL_PATH",
+            )
+            if Path(self.config.kokoro_dir).exists():
+                self.config.kokoro_dir = str(Path(self.config.kokoro_dir).resolve())
+
+            self.config.wav2vec_dir = str(wav2vec_dir)
+            self.config.ckpt_dir = str(ckpt_dir)
+            self.config.infinitetalk_dir = str(infinitetalk_path)
 
             LOGGER.info("Loading wav2vec audio encoder from %s", self.config.wav2vec_dir)
             self._wav2vec_feature_extractor, self._audio_encoder = self._custom_init(
@@ -106,6 +124,32 @@ class InfiniteTalkRuntime:
                     num_persistent_param_in_dit=self.config.num_persistent_param_in_dit
                 )
             self._pipeline = pipeline
+
+    def _resolve_existing_dir(self, raw_path: str, env_name: str) -> Path:
+        path = Path(raw_path).expanduser()
+        if not path.is_absolute():
+            path = path.resolve()
+        if not path.exists():
+            raise FileNotFoundError(
+                f"{env_name} points to a missing directory: {path}. "
+                "Check your Runpod volume mount path and weights layout."
+            )
+        if not path.is_dir():
+            raise NotADirectoryError(f"{env_name} must be a directory: {path}")
+        return path
+
+    def _resolve_existing_file(self, raw_path: str, env_name: str) -> Path:
+        path = Path(raw_path).expanduser()
+        if not path.is_absolute():
+            path = path.resolve()
+        if not path.exists():
+            raise FileNotFoundError(
+                f"{env_name} points to a missing file: {path}. "
+                "Check your Runpod volume mount path and weights layout."
+            )
+        if not path.is_file():
+            raise FileNotFoundError(f"{env_name} must be a file: {path}")
+        return path
 
     def generate_job(
         self,
