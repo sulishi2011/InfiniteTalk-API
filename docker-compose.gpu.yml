@@ -1,0 +1,19 @@
+services:
+  infinitetalk-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: infinitetalk-api:latest
+    ports:
+      - "8000:8000"
+    gpus: all
+    environment:
+      INFINITETALK_CKPT_DIR: /app/weights/Wan2.1-I2V-14B-480P
+      INFINITETALK_WAV2VEC_DIR: /app/weights/chinese-wav2vec2-base
+      INFINITETALK_MODEL_PATH: /app/weights/InfiniteTalk/single/infinitetalk.safetensors
+      INFINITETALK_KOKORO_DIR: /app/weights/Kokoro-82M
+      INFINITETALK_STARTUP_LOAD_MODEL: "true"
+    volumes:
+      - ./weights:/app/weights
+      - ./runtime_data:/app/runtime_data
+
