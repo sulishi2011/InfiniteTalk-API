@@ -4,11 +4,26 @@ from einops import rearrange
 import torch
 import torch.nn as nn
 
-from xfuser.core.distributed import (
-    get_sequence_parallel_rank,
-    get_sequence_parallel_world_size,
-    get_sp_group,
-)
+try:
+    from xfuser.core.distributed import (
+        get_sequence_parallel_rank,
+        get_sequence_parallel_world_size,
+        get_sp_group,
+    )
+except Exception:
+    class _SingleProcessGroup:
+        def all_gather(self, tensor, dim=0):
+            return tensor
+
+    def get_sequence_parallel_rank():
+        return 0
+
+    def get_sequence_parallel_world_size():
+        return 1
+
+    def get_sp_group():
+        return _SingleProcessGroup()
+
 from einops import rearrange, repeat
 from functools import lru_cache
 import imageio
