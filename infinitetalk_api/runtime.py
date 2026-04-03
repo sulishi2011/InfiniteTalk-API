@@ -361,6 +361,7 @@ class InfiniteTalkRuntime:
             return request_payload
 
         preset = generation_payload.get("preset", self.config.default_preset)
+        generation_payload.setdefault("preset", preset)
         preset_defaults = self._preset_defaults(preset)
         for key, value in preset_defaults.items():
             generation_payload.setdefault(key, value)
