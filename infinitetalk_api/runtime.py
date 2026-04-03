@@ -217,6 +217,7 @@ class InfiniteTalkRuntime:
                 audio_paths=list(items[1:]),
                 audio_type=payload.driver.audio_type,
                 embed_dir=segment_embed_dir,
+                frame_num=generation.frame_num,
             )
             input_clip["cond_audio"] = cond_audio
             input_clip["video_audio"] = str(segment_audio_path)
@@ -351,6 +352,7 @@ class InfiniteTalkRuntime:
         audio_paths: list[str],
         audio_type: str,
         embed_dir: Path,
+        frame_num: int,
     ) -> tuple[dict[str, str], Path]:
         cond_audio: dict[str, str] = {}
         if len(audio_paths) == 1:
@@ -359,6 +361,11 @@ class InfiniteTalkRuntime:
                 human_speech,
                 self._wav2vec_feature_extractor,
                 self._audio_encoder,
+            )
+            self._validate_embedding_length(
+                audio_embedding=audio_embedding,
+                frame_num=frame_num,
+                speaker_label="person1",
             )
             emb_path = embed_dir / "person1.pt"
             sum_audio = embed_dir / "sum.wav"
@@ -377,10 +384,20 @@ class InfiniteTalkRuntime:
             self._wav2vec_feature_extractor,
             self._audio_encoder,
         )
+        self._validate_embedding_length(
+            audio_embedding=audio_embedding_1,
+            frame_num=frame_num,
+            speaker_label="person1",
+        )
         audio_embedding_2 = self._get_embedding(
             new_human_speech2,
             self._wav2vec_feature_extractor,
             self._audio_encoder,
+        )
+        self._validate_embedding_length(
+            audio_embedding=audio_embedding_2,
+            frame_num=frame_num,
+            speaker_label="person2",
         )
         emb1_path = embed_dir / "person1.pt"
         emb2_path = embed_dir / "person2.pt"
@@ -403,6 +420,26 @@ class InfiniteTalkRuntime:
             local_files_only=True,
         )
         return wav2vec_feature_extractor, audio_encoder
+
+    def _validate_embedding_length(
+        self,
+        audio_embedding: torch.Tensor,
+        frame_num: int,
+        speaker_label: str,
+    ) -> None:
+        embedding_steps = int(audio_embedding.shape[0])
+        if embedding_steps > frame_num:
+            return
+
+        min_audio_seconds = (frame_num + 1) / 25.0
+        actual_audio_seconds = embedding_steps / 25.0
+        raise ValueError(
+            f"Audio for {speaker_label} is too short for frame_num={frame_num}. "
+            f"Need embedding steps > {frame_num}, got {embedding_steps} "
+            f"(about {actual_audio_seconds:.2f}s at 25 fps). "
+            f"Use a longer audio file or lower generation.frame_num to <= {max(5, embedding_steps - 1)}. "
+            f"Minimum audio length for this frame_num is about {min_audio_seconds:.2f}s."
+        )
 
     def _loudness_norm(self, audio_array, sr: int = 16000, lufs: int = -23):
         meter = pyln.Meter(sr)
