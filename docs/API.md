@@ -203,6 +203,30 @@ docker run --gpus all --rm \
   infinitetalk-api:latest
 ```
 
+Auto-download models on first startup:
+
+```bash
+docker run --gpus all --rm \
+  -p 8000:8000 \
+  -v /path/to/runtime_data:/workspace \
+  -e INFINITETALK_CKPT_DIR=/workspace/weights/Wan2.1-I2V-14B-480P \
+  -e INFINITETALK_WAV2VEC_DIR=/workspace/weights/chinese-wav2vec2-base \
+  -e INFINITETALK_MODEL_PATH=/workspace/weights/InfiniteTalk/single/infinitetalk.safetensors \
+  -e INFINITETALK_KOKORO_DIR=/workspace/weights/Kokoro-82M \
+  -e INFINITETALK_DATA_ROOT=/workspace/runtime_data \
+  -e INFINITETALK_AUTO_DOWNLOAD_MODELS=true \
+  -e INFINITETALK_AUTO_DOWNLOAD_KOKORO=false \
+  -e HF_TOKEN=hf_xxx_if_needed \
+  infinitetalk-api:latest
+```
+
+Notes:
+
+- The container now runs a bootstrap step before `uvicorn`.
+- Missing core models are downloaded automatically when `INFINITETALK_AUTO_DOWNLOAD_MODELS=true`.
+- Kokoro TTS weights are optional and controlled by `INFINITETALK_AUTO_DOWNLOAD_KOKORO`.
+- On Runpod, mounting your network volume at `/workspace` is the simplest layout.
+
 Or:
 
 ```bash

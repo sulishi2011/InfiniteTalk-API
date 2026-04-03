@@ -35,10 +35,17 @@ RUN python -m pip install -r requirements-api.txt
 
 COPY . .
 
+RUN chmod +x /app/scripts/entrypoint.sh
+
 EXPOSE 8000
 
 ENV INFINITETALK_API_HOST=0.0.0.0 \
     INFINITETALK_API_PORT=8000 \
-    INFINITETALK_DATA_ROOT=/app/runtime_data
+    INFINITETALK_DATA_ROOT=/app/runtime_data \
+    HF_HOME=/workspace/.cache/huggingface \
+    HUGGINGFACE_HUB_CACHE=/workspace/.cache/huggingface/hub \
+    INFINITETALK_AUTO_DOWNLOAD_MODELS=true \
+    INFINITETALK_AUTO_DOWNLOAD_KOKORO=false
 
+ENTRYPOINT ["/app/scripts/entrypoint.sh"]
 CMD ["uvicorn", "infinitetalk_api.main:app", "--host", "0.0.0.0", "--port", "8000"]
