@@ -1,0 +1,629 @@
+{
+  "info": {
+    "_postman_id": "c4a3d754-5fe1-4d95-b5d7-0dd9b58a7ab9",
+    "name": "InfiniteTalk API",
+    "description": "Postman collection for the InfiniteTalk avatar/job API.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "https://YOUR_POD_ID-8000.proxy.runpod.net"
+    },
+    {
+      "key": "avatar_id",
+      "value": ""
+    },
+    {
+      "key": "job_id",
+      "value": ""
+    },
+    {
+      "key": "job_preset",
+      "value": "quality"
+    },
+    {
+      "key": "local_media_path",
+      "value": "/workspace/assets/ref_image.png"
+    },
+    {
+      "key": "local_audio_path_1",
+      "value": "/workspace/assets/1.wav"
+    },
+    {
+      "key": "local_audio_path_2",
+      "value": "/workspace/assets/2.wav"
+    },
+    {
+      "key": "tts_voice_1",
+      "value": "/workspace/weights/Kokoro-82M/voices/am_adam.pt"
+    },
+    {
+      "key": "tts_voice_2",
+      "value": "/workspace/weights/Kokoro-82M/voices/af_heart.pt"
+    }
+  ],
+  "item": [
+    {
+      "name": "System",
+      "item": [
+        {
+          "name": "Healthz",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/healthz",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "healthz"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "System Options",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/v1/system/options",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "system",
+                "options"
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Avatars",
+      "item": [
+        {
+          "name": "List Avatars",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/v1/avatars",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "avatars"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Create Avatar From Upload",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.id) {",
+                  "  pm.collectionVariables.set('avatar_id', json.id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "name",
+                  "value": "demo-avatar",
+                  "type": "text"
+                },
+                {
+                  "key": "prompt",
+                  "value": "A woman is talking in a studio.",
+                  "type": "text"
+                },
+                {
+                  "key": "media_file",
+                  "type": "file",
+                  "src": "/absolute/path/to/ref_image.png"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/v1/avatars",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "avatars"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Create Avatar From Local Path",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.id) {",
+                  "  pm.collectionVariables.set('avatar_id', json.id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "name",
+                  "value": "demo-avatar-local",
+                  "type": "text"
+                },
+                {
+                  "key": "prompt",
+                  "value": "A woman is talking in a studio.",
+                  "type": "text"
+                },
+                {
+                  "key": "media_path",
+                  "value": "{{local_media_path}}",
+                  "type": "text"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/v1/avatars",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "avatars"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Avatar",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/v1/avatars/{{avatar_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "avatars",
+                "{{avatar_id}}"
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Jobs",
+      "item": [
+        {
+          "name": "List Jobs",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/v1/jobs",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "jobs"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Create Job From Uploaded Audio",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.id) {",
+                  "  pm.collectionVariables.set('job_id', json.id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "avatar_id",
+                  "value": "{{avatar_id}}",
+                  "type": "text"
+                },
+                {
+                  "key": "request_json",
+                  "value": "{\"driver\":{\"type\":\"upload\"},\"generation\":{\"preset\":\"{{job_preset}}\"}}",
+                  "type": "text"
+                },
+                {
+                  "key": "audio_1",
+                  "type": "file",
+                  "src": "/absolute/path/to/1.wav"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/v1/jobs",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "jobs"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Create Job From Local Audio Path",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.id) {",
+                  "  pm.collectionVariables.set('job_id', json.id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "avatar_id",
+                  "value": "{{avatar_id}}",
+                  "type": "text"
+                },
+                {
+                  "key": "request_json",
+                  "value": "{\"driver\":{\"type\":\"upload\"},\"generation\":{\"preset\":\"quality\"}}",
+                  "type": "text"
+                },
+                {
+                  "key": "audio_path_1",
+                  "value": "{{local_audio_path_1}}",
+                  "type": "text"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/v1/jobs",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "jobs"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Create Job Balanced Preset",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.id) {",
+                  "  pm.collectionVariables.set('job_id', json.id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "avatar_id",
+                  "value": "{{avatar_id}}",
+                  "type": "text"
+                },
+                {
+                  "key": "request_json",
+                  "value": "{\"driver\":{\"type\":\"upload\"},\"generation\":{\"preset\":\"balanced\"}}",
+                  "type": "text"
+                },
+                {
+                  "key": "audio_path_1",
+                  "value": "{{local_audio_path_1}}",
+                  "type": "text"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/v1/jobs",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "jobs"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Create Job Fast Preset",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.id) {",
+                  "  pm.collectionVariables.set('job_id', json.id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "avatar_id",
+                  "value": "{{avatar_id}}",
+                  "type": "text"
+                },
+                {
+                  "key": "request_json",
+                  "value": "{\"driver\":{\"type\":\"upload\"},\"generation\":{\"preset\":\"fast\"}}",
+                  "type": "text"
+                },
+                {
+                  "key": "audio_path_1",
+                  "value": "{{local_audio_path_1}}",
+                  "type": "text"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/v1/jobs",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "jobs"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Create Multi-Speaker Job",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.id) {",
+                  "  pm.collectionVariables.set('job_id', json.id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "avatar_id",
+                  "value": "{{avatar_id}}",
+                  "type": "text"
+                },
+                {
+                  "key": "request_json",
+                  "value": "{\"driver\":{\"type\":\"upload\",\"audio_type\":\"para\"},\"generation\":{\"preset\":\"balanced\"}}",
+                  "type": "text"
+                },
+                {
+                  "key": "audio_path_1",
+                  "value": "{{local_audio_path_1}}",
+                  "type": "text"
+                },
+                {
+                  "key": "audio_path_2",
+                  "value": "{{local_audio_path_2}}",
+                  "type": "text"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/v1/jobs",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "jobs"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Create TTS Job",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.id) {",
+                  "  pm.collectionVariables.set('job_id', json.id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "avatar_id",
+                  "value": "{{avatar_id}}",
+                  "type": "text"
+                },
+                {
+                  "key": "request_json",
+                  "value": "{\"driver\":{\"type\":\"tts\",\"tts_text\":\"Hello from InfiniteTalk.\",\"human1_voice\":\"{{tts_voice_1}}\"},\"generation\":{\"preset\":\"quality\"}}",
+                  "type": "text"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/v1/jobs",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "jobs"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Job",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/v1/jobs/{{job_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "jobs",
+                "{{job_id}}"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Job Result",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/v1/jobs/{{job_id}}/result",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "jobs",
+                "{{job_id}}",
+                "result"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Download Video",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/v1/jobs/{{job_id}}/video",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "jobs",
+                "{{job_id}}",
+                "video"
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    }
+  ]
+}
