@@ -249,7 +249,7 @@ class InfiniteTalkPipeline:
                 merged_state_dict = load_state_dict_file(dit_path)
                 if infinitetalk_dir is not None:
                     merged_state_dict.update(load_state_dict_file(infinitetalk_dir))
-                self.model.load_state_dict(merged_state_dict)
+                self.model.load_state_dict(merged_state_dict, assign=True)
                 logging.info(f"Loaded distilled DiT from {dit_path}")
             
         self.model.eval().requires_grad_(False)
