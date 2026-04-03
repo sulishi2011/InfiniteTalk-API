@@ -151,7 +151,9 @@ def ensure_accelerated_models() -> None:
     auto_download = env_bool("INFINITETALK_AUTO_DOWNLOAD_ACCEL_MODELS", False)
     token = token_from_env()
     default_preset = os.getenv("INFINITETALK_DEFAULT_PRESET", "base").strip().lower()
-    required_presets = {default_preset} if default_preset in {"quality", "balanced", "fast"} else set()
+    required_presets = {"quality"} if default_preset in {"quality", "balanced", "fast"} else set()
+    if auto_download and not required_presets:
+        required_presets = {"quality"}
 
     preset_tasks = {
         "quality": (
@@ -211,11 +213,14 @@ def ensure_accelerated_models() -> None:
     if not auto_download and not required_presets:
         return
 
+    if default_preset in {"balanced", "fast"}:
+        log(
+            f"Preset '{default_preset}' currently reuses the BF16 distilled DiT in this API backend. "
+            "Ensuring the quality preset weights are available."
+        )
+
     model_tasks = list(shared_tasks)
-    if auto_download:
-        model_tasks.extend(preset_tasks.values())
-    else:
-        model_tasks.extend(preset_tasks[preset] for preset in required_presets)
+    model_tasks.extend(preset_tasks[preset] for preset in required_presets)
 
     missing_messages: list[str] = []
     for local_path, repo_id, filename in model_tasks:

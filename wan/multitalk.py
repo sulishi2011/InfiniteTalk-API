@@ -202,7 +202,7 @@ class InfiniteTalkPipeline:
                                          config.clip_checkpoint),
             tokenizer_path=os.path.join(checkpoint_dir, config.clip_tokenizer))
 
-        logging.info(f"Creating WanModel from {checkpoint_dir}")
+        logging.info(f"Initializing WanModel architecture using config from {checkpoint_dir}")
 
         if quant is not None:
             logging.info(f"Loading Quantized MultiTalk from {quant_dir}")

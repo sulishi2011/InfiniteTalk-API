@@ -115,9 +115,9 @@ The service supports two driver modes:
 Preset notes:
 
 - `base`: original full Wan + official InfiniteTalk weights.
-- `quality`: Lightx2v BF16 4-step, tuned for better quality while staying fast.
-- `balanced`: Lightx2v FP8 4-step.
-- `fast`: Lightx2v INT8 4-step with shorter default clip settings.
+- `quality`: Lightx2v BF16 4-step distilled DiT, tuned for better quality while staying fast.
+- `balanced`: currently reuses the same BF16 distilled DiT, but applies more aggressive runtime defaults such as TeaCache. The Lightx2v FP8 single-file checkpoint format is not loaded directly by this backend yet.
+- `fast`: currently reuses the same BF16 distilled DiT, but uses shorter clip defaults for preview-style runs. The Lightx2v INT8 single-file checkpoint format is not loaded directly by this backend yet.
 
 Single-speaker upload example:
 
@@ -226,8 +226,6 @@ docker run --gpus all --rm \
   -e INFINITETALK_AUTO_DOWNLOAD_ACCEL_MODELS=true \
   -e INFINITETALK_DEFAULT_PRESET=quality \
   -e INFINITETALK_QUALITY_DIT_PATH=/workspace/weights/lightx2v/Wan2.1-Distill-Models/wan2.1_i2v_480p_lightx2v_4step.safetensors \
-  -e INFINITETALK_BALANCED_DIT_PATH=/workspace/weights/lightx2v/Wan2.1-Distill-Models/wan2.1_i2v_480p_scaled_fp8_e4m3_lightx2v_4step.safetensors \
-  -e INFINITETALK_FAST_DIT_PATH=/workspace/weights/lightx2v/Wan2.1-Distill-Models/wan2.1_i2v_480p_int8_lightx2v_4step.safetensors \
   -e INFINITETALK_DISTILLED_T5_PATH=/workspace/weights/Kijai/WanVideo_comfy/umt5-xxl-enc-fp8_e4m3fn.safetensors \
   -e INFINITETALK_DISTILLED_MODEL_PATH=/workspace/weights/Kijai/WanVideo_comfy/InfiniteTalk/Wan2_1-InfiniTetalk-Single_fp16.safetensors \
   -e INFINITETALK_AUTO_DOWNLOAD_KOKORO=false \
@@ -240,6 +238,7 @@ Notes:
 - The container now runs a bootstrap step before `uvicorn`.
 - Missing core models are downloaded automatically when `INFINITETALK_AUTO_DOWNLOAD_MODELS=true`.
 - Accelerated preset models are optional and controlled by `INFINITETALK_AUTO_DOWNLOAD_ACCEL_MODELS`.
+- `balanced` and `fast` currently reuse the BF16 distilled DiT in this API backend. Their preset names still change the default generation parameters.
 - Kokoro TTS weights are optional and controlled by `INFINITETALK_AUTO_DOWNLOAD_KOKORO`.
 - On Runpod, mounting your network volume at `/workspace` is the simplest layout.
 

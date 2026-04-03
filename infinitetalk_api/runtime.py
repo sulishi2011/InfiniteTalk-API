@@ -50,6 +50,7 @@ def _default_sample_shift(size: str) -> float:
 @dataclass(slots=True)
 class PipelineSpec:
     key: str
+    requested_preset: str
     checkpoint_dir: str
     infinitetalk_dir: str
     quant_dir: str | None
@@ -113,21 +114,6 @@ class InfiniteTalkRuntime:
         self.config.ckpt_dir = str(ckpt_dir)
         self.config.infinitetalk_dir = str(infinitetalk_path)
 
-        for attr_name, env_name in (
-            ("distilled_t5_path", "INFINITETALK_DISTILLED_T5_PATH"),
-            ("distilled_infinitetalk_dir", "INFINITETALK_DISTILLED_MODEL_PATH"),
-            ("quality_dit_path", "INFINITETALK_QUALITY_DIT_PATH"),
-            ("balanced_dit_path", "INFINITETALK_BALANCED_DIT_PATH"),
-            ("fast_dit_path", "INFINITETALK_FAST_DIT_PATH"),
-        ):
-            raw_value = getattr(self.config, attr_name)
-            if raw_value:
-                setattr(
-                    self.config,
-                    attr_name,
-                    str(self._resolve_existing_file(raw_value, env_name)),
-                )
-
         LOGGER.info("Loading wav2vec audio encoder from %s", self.config.wav2vec_dir)
         self._wav2vec_feature_extractor, self._audio_encoder = self._custom_init(
             "cpu",
@@ -136,11 +122,21 @@ class InfiniteTalkRuntime:
 
     def _resolve_pipeline_spec(self, preset: str) -> PipelineSpec:
         base_patch = self.config.infinitetalk_dir
-        distilled_patch = self.config.distilled_infinitetalk_dir or base_patch
 
         if preset == "base":
+            key_parts = [
+                "base",
+                self.config.ckpt_dir,
+                base_patch,
+                self.config.quant_dir or "",
+                self.config.dit_path or "",
+                ",".join(self.config.lora_dirs or []),
+                ",".join(str(scale) for scale in (self.config.lora_scales or [])),
+                self.config.quant or "",
+            ]
             return PipelineSpec(
-                key="base",
+                key="|".join(key_parts),
+                requested_preset="base",
                 checkpoint_dir=self.config.ckpt_dir,
                 infinitetalk_dir=base_patch,
                 quant_dir=self.config.quant_dir,
@@ -151,34 +147,90 @@ class InfiniteTalkRuntime:
                 t5_checkpoint_path=None,
             )
 
-        dit_path = {
+        dit_env_names = {
+            "quality": "INFINITETALK_QUALITY_DIT_PATH",
+            "balanced": "INFINITETALK_BALANCED_DIT_PATH",
+            "fast": "INFINITETALK_FAST_DIT_PATH",
+        }
+        requested_dit_path = {
             "quality": self.config.quality_dit_path,
             "balanced": self.config.balanced_dit_path,
             "fast": self.config.fast_dit_path,
         }.get(preset)
-        if not dit_path:
+        if preset in {"balanced", "fast"} and not requested_dit_path:
+            requested_dit_path = self.config.quality_dit_path
+        if not requested_dit_path:
             raise FileNotFoundError(
                 f"Preset '{preset}' is not configured. Set the matching distilled model path env var."
             )
+        requested_dit_path = str(
+            self._resolve_existing_file(requested_dit_path, dit_env_names[preset])
+        )
+
+        effective_dit_path = requested_dit_path
+        if preset in {"balanced", "fast"} and self._is_quantized_lightx2v_checkpoint(requested_dit_path):
+            quality_dit_path = self.config.quality_dit_path
+            if not quality_dit_path:
+                raise FileNotFoundError(
+                    f"Preset '{preset}' currently needs a BF16 fallback. Set INFINITETALK_QUALITY_DIT_PATH."
+                )
+            quality_dit_path = str(
+                self._resolve_existing_file(quality_dit_path, "INFINITETALK_QUALITY_DIT_PATH")
+            )
+            if Path(quality_dit_path) != Path(requested_dit_path):
+                LOGGER.warning(
+                    "Preset '%s' points to a quantized LightX2V single-file checkpoint (%s). "
+                    "This API backend can directly load BF16 distilled DiT checkpoints, but not the "
+                    "FP8/INT8 LightX2V single-file format yet. Falling back to %s while keeping preset defaults.",
+                    preset,
+                    requested_dit_path,
+                    quality_dit_path,
+                )
+            effective_dit_path = quality_dit_path
+
+        distilled_patch = self.config.distilled_infinitetalk_dir or base_patch
+        distilled_patch = str(
+            self._resolve_existing_file(distilled_patch, "INFINITETALK_DISTILLED_MODEL_PATH")
+        )
+        if not self.config.distilled_t5_path:
+            raise FileNotFoundError(
+                f"Preset '{preset}' requires INFINITETALK_DISTILLED_T5_PATH to be set."
+            )
+        distilled_t5_path = str(
+            self._resolve_existing_file(
+                self.config.distilled_t5_path,
+                "INFINITETALK_DISTILLED_T5_PATH",
+            )
+        )
+        cache_key = "|".join(
+            [
+                "distilled",
+                self.config.ckpt_dir,
+                effective_dit_path,
+                distilled_patch,
+                distilled_t5_path,
+            ]
+        )
 
         return PipelineSpec(
-            key=preset,
+            key=cache_key,
+            requested_preset=preset,
             checkpoint_dir=self.config.ckpt_dir,
             infinitetalk_dir=distilled_patch,
             quant_dir=None,
-            dit_path=dit_path,
+            dit_path=effective_dit_path,
             lora_dirs=None,
             lora_scales=None,
             quant=None,
-            t5_checkpoint_path=self.config.distilled_t5_path,
+            t5_checkpoint_path=distilled_t5_path,
         )
 
     def _build_pipeline(self, pipeline_spec: PipelineSpec):
         cfg = WAN_CONFIGS[self.config.task]
         device_id = int(os.getenv("LOCAL_RANK", "0"))
         LOGGER.info(
-            "Loading InfiniteTalk pipeline preset '%s' from %s",
-            pipeline_spec.key,
+            "Loading InfiniteTalk pipeline preset '%s' with shared assets from %s",
+            pipeline_spec.requested_preset,
             pipeline_spec.checkpoint_dir,
         )
         lora_dirs = pipeline_spec.lora_dirs
@@ -209,6 +261,10 @@ class InfiniteTalkRuntime:
                 num_persistent_param_in_dit=self.config.num_persistent_param_in_dit
             )
         return pipeline
+
+    def _is_quantized_lightx2v_checkpoint(self, path: str) -> bool:
+        lowered_name = Path(path).name.lower()
+        return any(token in lowered_name for token in ("scaled_fp8", "int8", "nvfp4"))
 
     def _unload_pipeline(self) -> None:
         if self._pipeline is None:
