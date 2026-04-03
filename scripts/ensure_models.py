@@ -33,7 +33,6 @@ def download_snapshot(repo_id: str, local_dir: Path, token: str | None) -> None:
         repo_id=repo_id,
         local_dir=str(local_dir),
         token=token,
-        resume_download=True,
     )
 
 
@@ -52,8 +51,15 @@ def download_file(
         revision=revision,
         local_dir=str(local_dir),
         token=token,
-        resume_download=True,
     )
+
+
+def normalize_downloaded_file(local_path: Path, filename: str) -> None:
+    nested_candidate = local_path.parent / Path(filename)
+    if local_path.exists() or not nested_candidate.exists():
+        return
+    require_parent(local_path)
+    nested_candidate.replace(local_path)
 
 
 def ensure_core_models() -> None:
@@ -213,18 +219,21 @@ def ensure_accelerated_models() -> None:
 
     missing_messages: list[str] = []
     for local_path, repo_id, filename in model_tasks:
+        normalize_downloaded_file(local_path, filename)
         if local_path.exists():
             continue
         if not auto_download:
             missing_messages.append(f"missing {local_path}")
             continue
+        download_dir = local_path.parents[len(Path(filename).parts) - 1]
         require_parent(local_path)
         download_file(
             repo_id,
             filename,
-            local_path.parent,
+            download_dir,
             token,
         )
+        normalize_downloaded_file(local_path, filename)
 
     if missing_messages:
         joined = "; ".join(missing_messages)
