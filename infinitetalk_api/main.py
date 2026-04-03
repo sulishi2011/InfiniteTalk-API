@@ -112,9 +112,11 @@ def create_app() -> FastAPI:
         runtime: InfiniteTalkRuntime = request.app.state.runtime
         worker: JobWorker = request.app.state.worker
         return SystemOptionsResponse(
+            presets=["base", "quality", "balanced", "fast"],
             sizes=["infinitetalk-480", "infinitetalk-720"],
             modes=["clip", "streaming"],
             default_generation={
+                "preset": config.default_preset,
                 "size": config.default_size,
                 "mode": config.default_mode,
                 "frame_num": config.default_frame_num,

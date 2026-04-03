@@ -45,6 +45,8 @@ ENV INFINITETALK_API_HOST=0.0.0.0 \
     HF_HOME=/workspace/.cache/huggingface \
     HUGGINGFACE_HUB_CACHE=/workspace/.cache/huggingface/hub \
     INFINITETALK_AUTO_DOWNLOAD_MODELS=true \
+    INFINITETALK_AUTO_DOWNLOAD_ACCEL_MODELS=false \
+    INFINITETALK_DEFAULT_PRESET=base \
     INFINITETALK_AUTO_DOWNLOAD_KOKORO=false
 
 ENTRYPOINT ["/app/scripts/entrypoint.sh"]

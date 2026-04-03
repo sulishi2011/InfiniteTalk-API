@@ -43,8 +43,14 @@ class ServiceConfig:
     lora_dirs: list[str] | None
     lora_scales: list[float] | None
     quant: str | None
+    distilled_t5_path: str | None
+    distilled_infinitetalk_dir: str | None
+    quality_dit_path: str | None
+    balanced_dit_path: str | None
+    fast_dit_path: str | None
     offload_model: bool
     num_persistent_param_in_dit: int | None
+    default_preset: str
     default_size: str
     default_mode: str
     default_frame_num: int
@@ -80,12 +86,18 @@ class ServiceConfig:
             lora_dirs=_env_list("INFINITETALK_LORA_DIRS"),
             lora_scales=_env_float_list("INFINITETALK_LORA_SCALES"),
             quant=os.getenv("INFINITETALK_QUANT") or None,
+            distilled_t5_path=os.getenv("INFINITETALK_DISTILLED_T5_PATH") or None,
+            distilled_infinitetalk_dir=os.getenv("INFINITETALK_DISTILLED_MODEL_PATH") or None,
+            quality_dit_path=os.getenv("INFINITETALK_QUALITY_DIT_PATH") or None,
+            balanced_dit_path=os.getenv("INFINITETALK_BALANCED_DIT_PATH") or None,
+            fast_dit_path=os.getenv("INFINITETALK_FAST_DIT_PATH") or None,
             offload_model=_env_bool("INFINITETALK_OFFLOAD_MODEL", True),
             num_persistent_param_in_dit=(
                 int(os.getenv("INFINITETALK_NUM_PERSISTENT_PARAM_IN_DIT"))
                 if os.getenv("INFINITETALK_NUM_PERSISTENT_PARAM_IN_DIT")
                 else None
             ),
+            default_preset=os.getenv("INFINITETALK_DEFAULT_PRESET", "base"),
             default_size=os.getenv("INFINITETALK_DEFAULT_SIZE", "infinitetalk-480"),
             default_mode=os.getenv("INFINITETALK_DEFAULT_MODE", "streaming"),
             default_frame_num=int(os.getenv("INFINITETALK_DEFAULT_FRAME_NUM", "81")),
@@ -115,4 +127,3 @@ class ServiceConfig:
     def ensure_directories(self) -> None:
         for path in (self.data_root, self.avatars_dir, self.jobs_dir):
             path.mkdir(parents=True, exist_ok=True)
-

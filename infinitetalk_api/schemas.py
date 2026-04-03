@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 class GenerationOptions(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    preset: Literal["base", "quality", "balanced", "fast"] = "base"
     size: Literal["infinitetalk-480", "infinitetalk-720"] = "infinitetalk-480"
     mode: Literal["clip", "streaming"] = "streaming"
     frame_num: int = Field(default=81, ge=5)
@@ -106,6 +107,7 @@ class JobRecord(BaseModel):
 
 
 class SystemOptionsResponse(BaseModel):
+    presets: list[str]
     sizes: list[str]
     modes: list[str]
     default_generation: GenerationOptions
@@ -114,4 +116,3 @@ class SystemOptionsResponse(BaseModel):
     available_voices: list[str] = Field(default_factory=list)
     model_loaded: bool
     queue_size: int
-

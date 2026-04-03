@@ -141,9 +141,104 @@ def ensure_kokoro() -> None:
     )
 
 
+def ensure_accelerated_models() -> None:
+    auto_download = env_bool("INFINITETALK_AUTO_DOWNLOAD_ACCEL_MODELS", False)
+    token = token_from_env()
+    default_preset = os.getenv("INFINITETALK_DEFAULT_PRESET", "base").strip().lower()
+    required_presets = {default_preset} if default_preset in {"quality", "balanced", "fast"} else set()
+
+    preset_tasks = {
+        "quality": (
+            Path(
+                os.getenv(
+                    "INFINITETALK_QUALITY_DIT_PATH",
+                    "/workspace/weights/lightx2v/Wan2.1-Distill-Models/wan2.1_i2v_480p_lightx2v_4step.safetensors",
+                )
+            ),
+            os.getenv("INFINITETALK_LIGHTX2V_REPO", "lightx2v/Wan2.1-Distill-Models"),
+            "wan2.1_i2v_480p_lightx2v_4step.safetensors",
+        ),
+        "balanced": (
+            Path(
+                os.getenv(
+                    "INFINITETALK_BALANCED_DIT_PATH",
+                    "/workspace/weights/lightx2v/Wan2.1-Distill-Models/wan2.1_i2v_480p_scaled_fp8_e4m3_lightx2v_4step.safetensors",
+                )
+            ),
+            os.getenv("INFINITETALK_LIGHTX2V_REPO", "lightx2v/Wan2.1-Distill-Models"),
+            "wan2.1_i2v_480p_scaled_fp8_e4m3_lightx2v_4step.safetensors",
+        ),
+        "fast": (
+            Path(
+                os.getenv(
+                    "INFINITETALK_FAST_DIT_PATH",
+                    "/workspace/weights/lightx2v/Wan2.1-Distill-Models/wan2.1_i2v_480p_int8_lightx2v_4step.safetensors",
+                )
+            ),
+            os.getenv("INFINITETALK_LIGHTX2V_REPO", "lightx2v/Wan2.1-Distill-Models"),
+            "wan2.1_i2v_480p_int8_lightx2v_4step.safetensors",
+        ),
+    }
+    shared_tasks = [
+        (
+            Path(
+                os.getenv(
+                    "INFINITETALK_DISTILLED_T5_PATH",
+                    "/workspace/weights/Kijai/WanVideo_comfy/umt5-xxl-enc-fp8_e4m3fn.safetensors",
+                )
+            ),
+            os.getenv("INFINITETALK_COMFY_REPO", "Kijai/WanVideo_comfy"),
+            "umt5-xxl-enc-fp8_e4m3fn.safetensors",
+        ),
+        (
+            Path(
+                os.getenv(
+                    "INFINITETALK_DISTILLED_MODEL_PATH",
+                    "/workspace/weights/Kijai/WanVideo_comfy/InfiniteTalk/Wan2_1-InfiniTetalk-Single_fp16.safetensors",
+                )
+            ),
+            os.getenv("INFINITETALK_COMFY_REPO", "Kijai/WanVideo_comfy"),
+            "InfiniteTalk/Wan2_1-InfiniTetalk-Single_fp16.safetensors",
+        ),
+    ]
+
+    if not auto_download and not required_presets:
+        return
+
+    model_tasks = list(shared_tasks)
+    if auto_download:
+        model_tasks.extend(preset_tasks.values())
+    else:
+        model_tasks.extend(preset_tasks[preset] for preset in required_presets)
+
+    missing_messages: list[str] = []
+    for local_path, repo_id, filename in model_tasks:
+        if local_path.exists():
+            continue
+        if not auto_download:
+            missing_messages.append(f"missing {local_path}")
+            continue
+        require_parent(local_path)
+        download_file(
+            repo_id,
+            filename,
+            local_path.parent,
+            token,
+        )
+
+    if missing_messages:
+        joined = "; ".join(missing_messages)
+        raise FileNotFoundError(
+            "Accelerated preset models are missing. "
+            f"{joined}. Mount them into the container or set "
+            "INFINITETALK_AUTO_DOWNLOAD_ACCEL_MODELS=true."
+        )
+
+
 def main() -> int:
     try:
         ensure_core_models()
+        ensure_accelerated_models()
         ensure_kokoro()
     except Exception as exc:
         log(str(exc))
@@ -155,4 +250,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

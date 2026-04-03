@@ -514,7 +514,10 @@ class T5EncoderModel:
                 return_tokenizer=False,
                 dtype=dtype,
                 device=device).eval().requires_grad_(False)
-            model.load_state_dict(torch.load(checkpoint_path, map_location='cpu'))
+            if str(checkpoint_path).endswith(".safetensors"):
+                model.load_state_dict(load_file(checkpoint_path))
+            else:
+                model.load_state_dict(torch.load(checkpoint_path, map_location='cpu'))
         self.model = model
         self.model.eval().requires_grad_(False)
         if shard_fn is not None:

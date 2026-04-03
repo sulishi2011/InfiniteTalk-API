@@ -42,6 +42,18 @@ def torch_gc():
     torch.cuda.empty_cache()
     torch.cuda.ipc_collect()
 
+
+def load_state_dict_file(path):
+    if path is None:
+        raise ValueError("path must not be None")
+    if str(path).endswith(".safetensors"):
+        return load_file(path)
+
+    checkpoint = torch.load(path, map_location="cpu")
+    if isinstance(checkpoint, dict) and "state_dict" in checkpoint:
+        return checkpoint["state_dict"]
+    return checkpoint
+
 def to_param_dtype_fp32only(model, param_dtype):
     for module in model.modules():
         for name, param in module.named_parameters(recurse=False):
@@ -126,6 +138,7 @@ class InfiniteTalkPipeline:
         quant = None,
         dit_path = None,
         infinitetalk_dir=None,
+        t5_checkpoint_path=None,
     ):
         r"""
         Initializes the image-to-video generation model components.
@@ -169,7 +182,7 @@ class InfiniteTalkPipeline:
             text_len=config.text_len,
             dtype=config.t5_dtype,
             device=torch.device('cpu'),
-            checkpoint_path=os.path.join(checkpoint_dir, config.t5_checkpoint),
+            checkpoint_path=t5_checkpoint_path or os.path.join(checkpoint_dir, config.t5_checkpoint),
             tokenizer_path=os.path.join(checkpoint_dir, config.t5_tokenizer),
             shard_fn=shard_fn if t5_fsdp else None,
             quant=quant,
@@ -226,12 +239,18 @@ class InfiniteTalkPipeline:
             else:
                 init_contexts = [no_init_weights()]
                 init_contexts.append(accelerate.init_empty_weights())
+                config_json_path = os.path.join(checkpoint_dir, "config.json")
+                dit_config_path = os.path.join(os.path.dirname(dit_path), "config.json")
+                if os.path.exists(dit_config_path):
+                    config_json_path = dit_config_path
                 with ContextManagers(init_contexts):
-                    wan_config = json.load(open(os.path.join(checkpoint_dir, "config.json")))
+                    wan_config = json.load(open(config_json_path))
                     self.model = WanModel(weight_init=False,**wan_config)
-                checkpoint_weights = torch.load(dit_path, map_location='cpu')
-                self.model.load_state_dict(checkpoint_weights['state_dict'])
-                logging.info(f"loading infinitetalk weights {checkpoint_dir}")
+                merged_state_dict = load_state_dict_file(dit_path)
+                if infinitetalk_dir is not None:
+                    merged_state_dict.update(load_state_dict_file(infinitetalk_dir))
+                self.model.load_state_dict(merged_state_dict)
+                logging.info(f"Loaded distilled DiT from {dit_path}")
             
         self.model.eval().requires_grad_(False)
         

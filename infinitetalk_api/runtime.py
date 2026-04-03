@@ -7,6 +7,7 @@ import shutil
 import subprocess
 import threading
 import uuid
+from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Callable
@@ -46,10 +47,24 @@ def _default_sample_shift(size: str) -> float:
     raise ValueError(f"Unsupported size: {size}")
 
 
+@dataclass(slots=True)
+class PipelineSpec:
+    key: str
+    checkpoint_dir: str
+    infinitetalk_dir: str
+    quant_dir: str | None
+    dit_path: str | None
+    lora_dirs: list[str] | None
+    lora_scales: list[float] | None
+    quant: str | None
+    t5_checkpoint_path: str | None
+
+
 class InfiniteTalkRuntime:
     def __init__(self, config: ServiceConfig):
         self.config = config
         self._pipeline = None
+        self._pipeline_key: str | None = None
         self._wav2vec_feature_extractor = None
         self._audio_encoder = None
         self._tts_pipeline = None
@@ -59,71 +74,150 @@ class InfiniteTalkRuntime:
     def model_loaded(self) -> bool:
         return self._pipeline is not None
 
-    def ensure_loaded(self) -> None:
-        if self.model_loaded:
-            return
+    def ensure_loaded(self, preset: str | None = None) -> None:
+        desired_preset = preset or self.config.default_preset
         with self._load_lock:
-            if self.model_loaded:
-                return
             world_size = int(os.getenv("WORLD_SIZE", "1"))
             if world_size != 1:
                 raise RuntimeError("The API service currently supports single-process, single-GPU deployment only.")
 
-            cfg = WAN_CONFIGS[self.config.task]
-            device_id = int(os.getenv("LOCAL_RANK", "0"))
-            wav2vec_dir = self._resolve_existing_dir(
-                self.config.wav2vec_dir,
-                "INFINITETALK_WAV2VEC_DIR",
-            )
-            ckpt_dir = self._resolve_existing_dir(
-                self.config.ckpt_dir,
-                "INFINITETALK_CKPT_DIR",
-            )
-            infinitetalk_path = self._resolve_existing_file(
-                self.config.infinitetalk_dir,
-                "INFINITETALK_MODEL_PATH",
-            )
-            if Path(self.config.kokoro_dir).exists():
-                self.config.kokoro_dir = str(Path(self.config.kokoro_dir).resolve())
+            self._ensure_shared_components_loaded()
+            pipeline_spec = self._resolve_pipeline_spec(desired_preset)
+            if self._pipeline is not None and self._pipeline_key == pipeline_spec.key:
+                return
 
-            self.config.wav2vec_dir = str(wav2vec_dir)
-            self.config.ckpt_dir = str(ckpt_dir)
-            self.config.infinitetalk_dir = str(infinitetalk_path)
+            self._unload_pipeline()
+            self._pipeline = self._build_pipeline(pipeline_spec)
+            self._pipeline_key = pipeline_spec.key
 
-            LOGGER.info("Loading wav2vec audio encoder from %s", self.config.wav2vec_dir)
-            self._wav2vec_feature_extractor, self._audio_encoder = self._custom_init(
-                "cpu",
-                self.config.wav2vec_dir,
-            )
+    def _ensure_shared_components_loaded(self) -> None:
+        if self._wav2vec_feature_extractor is not None and self._audio_encoder is not None:
+            return
 
-            LOGGER.info("Loading InfiniteTalk pipeline from %s", self.config.ckpt_dir)
-            lora_dirs = self.config.lora_dirs
-            lora_scales = self.config.lora_scales
-            if lora_dirs is not None and lora_scales is None:
-                lora_scales = [1.0] * len(lora_dirs)
+        wav2vec_dir = self._resolve_existing_dir(
+            self.config.wav2vec_dir,
+            "INFINITETALK_WAV2VEC_DIR",
+        )
+        ckpt_dir = self._resolve_existing_dir(
+            self.config.ckpt_dir,
+            "INFINITETALK_CKPT_DIR",
+        )
+        infinitetalk_path = self._resolve_existing_file(
+            self.config.infinitetalk_dir,
+            "INFINITETALK_MODEL_PATH",
+        )
+        if Path(self.config.kokoro_dir).exists():
+            self.config.kokoro_dir = str(Path(self.config.kokoro_dir).resolve())
 
-            pipeline = wan.InfiniteTalkPipeline(
-                config=cfg,
-                checkpoint_dir=self.config.ckpt_dir,
-                quant_dir=self.config.quant_dir,
-                device_id=device_id,
-                rank=0,
-                t5_fsdp=False,
-                dit_fsdp=False,
-                use_usp=False,
-                t5_cpu=False,
-                lora_dir=lora_dirs,
-                lora_scales=lora_scales,
-                quant=self.config.quant,
-                dit_path=self.config.dit_path,
-                infinitetalk_dir=self.config.infinitetalk_dir,
-            )
-            if self.config.num_persistent_param_in_dit is not None:
-                pipeline.vram_management = True
-                pipeline.enable_vram_management(
-                    num_persistent_param_in_dit=self.config.num_persistent_param_in_dit
+        self.config.wav2vec_dir = str(wav2vec_dir)
+        self.config.ckpt_dir = str(ckpt_dir)
+        self.config.infinitetalk_dir = str(infinitetalk_path)
+
+        for attr_name, env_name in (
+            ("distilled_t5_path", "INFINITETALK_DISTILLED_T5_PATH"),
+            ("distilled_infinitetalk_dir", "INFINITETALK_DISTILLED_MODEL_PATH"),
+            ("quality_dit_path", "INFINITETALK_QUALITY_DIT_PATH"),
+            ("balanced_dit_path", "INFINITETALK_BALANCED_DIT_PATH"),
+            ("fast_dit_path", "INFINITETALK_FAST_DIT_PATH"),
+        ):
+            raw_value = getattr(self.config, attr_name)
+            if raw_value:
+                setattr(
+                    self.config,
+                    attr_name,
+                    str(self._resolve_existing_file(raw_value, env_name)),
                 )
-            self._pipeline = pipeline
+
+        LOGGER.info("Loading wav2vec audio encoder from %s", self.config.wav2vec_dir)
+        self._wav2vec_feature_extractor, self._audio_encoder = self._custom_init(
+            "cpu",
+            self.config.wav2vec_dir,
+        )
+
+    def _resolve_pipeline_spec(self, preset: str) -> PipelineSpec:
+        base_patch = self.config.infinitetalk_dir
+        distilled_patch = self.config.distilled_infinitetalk_dir or base_patch
+
+        if preset == "base":
+            return PipelineSpec(
+                key="base",
+                checkpoint_dir=self.config.ckpt_dir,
+                infinitetalk_dir=base_patch,
+                quant_dir=self.config.quant_dir,
+                dit_path=self.config.dit_path,
+                lora_dirs=self.config.lora_dirs,
+                lora_scales=self.config.lora_scales,
+                quant=self.config.quant,
+                t5_checkpoint_path=None,
+            )
+
+        dit_path = {
+            "quality": self.config.quality_dit_path,
+            "balanced": self.config.balanced_dit_path,
+            "fast": self.config.fast_dit_path,
+        }.get(preset)
+        if not dit_path:
+            raise FileNotFoundError(
+                f"Preset '{preset}' is not configured. Set the matching distilled model path env var."
+            )
+
+        return PipelineSpec(
+            key=preset,
+            checkpoint_dir=self.config.ckpt_dir,
+            infinitetalk_dir=distilled_patch,
+            quant_dir=None,
+            dit_path=dit_path,
+            lora_dirs=None,
+            lora_scales=None,
+            quant=None,
+            t5_checkpoint_path=self.config.distilled_t5_path,
+        )
+
+    def _build_pipeline(self, pipeline_spec: PipelineSpec):
+        cfg = WAN_CONFIGS[self.config.task]
+        device_id = int(os.getenv("LOCAL_RANK", "0"))
+        LOGGER.info(
+            "Loading InfiniteTalk pipeline preset '%s' from %s",
+            pipeline_spec.key,
+            pipeline_spec.checkpoint_dir,
+        )
+        lora_dirs = pipeline_spec.lora_dirs
+        lora_scales = pipeline_spec.lora_scales
+        if lora_dirs is not None and lora_scales is None:
+            lora_scales = [1.0] * len(lora_dirs)
+
+        pipeline = wan.InfiniteTalkPipeline(
+            config=cfg,
+            checkpoint_dir=pipeline_spec.checkpoint_dir,
+            quant_dir=pipeline_spec.quant_dir,
+            device_id=device_id,
+            rank=0,
+            t5_fsdp=False,
+            dit_fsdp=False,
+            use_usp=False,
+            t5_cpu=False,
+            lora_dir=lora_dirs,
+            lora_scales=lora_scales,
+            quant=pipeline_spec.quant,
+            dit_path=pipeline_spec.dit_path,
+            infinitetalk_dir=pipeline_spec.infinitetalk_dir,
+            t5_checkpoint_path=pipeline_spec.t5_checkpoint_path,
+        )
+        if self.config.num_persistent_param_in_dit is not None:
+            pipeline.vram_management = True
+            pipeline.enable_vram_management(
+                num_persistent_param_in_dit=self.config.num_persistent_param_in_dit
+            )
+        return pipeline
+
+    def _unload_pipeline(self) -> None:
+        if self._pipeline is None:
+            return
+        self._pipeline = None
+        self._pipeline_key = None
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            torch.cuda.ipc_collect()
 
     def _resolve_existing_dir(self, raw_path: str, env_name: str) -> Path:
         path = Path(raw_path).expanduser()
@@ -157,11 +251,11 @@ class InfiniteTalkRuntime:
         avatar: AvatarRecord,
         status_callback: StatusCallback | None = None,
     ) -> dict[str, Any]:
-        self.ensure_loaded()
-
-        payload = JobCreatePayload.model_validate(
+        merged_request = self._apply_generation_preset_defaults(
             deep_merge(avatar.defaults, job.request)
         )
+        payload = JobCreatePayload.model_validate(merged_request)
+        self.ensure_loaded(payload.generation.preset)
         generation = payload.generation
         prompt = payload.prompt or avatar.prompt
         bbox = payload.bbox or avatar.bbox
@@ -260,6 +354,55 @@ class InfiniteTalkRuntime:
             "result_audio_path": str(final_audio_path),
             "source_audio_paths": [str(path) for path in source_audio_paths],
         }
+
+    def _apply_generation_preset_defaults(self, request_payload: dict[str, Any]) -> dict[str, Any]:
+        generation_payload = request_payload.setdefault("generation", {})
+        if not isinstance(generation_payload, dict):
+            return request_payload
+
+        preset = generation_payload.get("preset", self.config.default_preset)
+        preset_defaults = self._preset_defaults(preset)
+        for key, value in preset_defaults.items():
+            generation_payload.setdefault(key, value)
+        return request_payload
+
+    def _preset_defaults(self, preset: str) -> dict[str, Any]:
+        if preset == "quality":
+            return {
+                "size": "infinitetalk-480",
+                "mode": "clip",
+                "frame_num": 81,
+                "sample_steps": 4,
+                "sample_shift": 2.0,
+                "sample_text_guide_scale": 1.0,
+                "sample_audio_guide_scale": 2.0,
+                "use_teacache": False,
+            }
+        if preset == "balanced":
+            return {
+                "size": "infinitetalk-480",
+                "mode": "clip",
+                "frame_num": 81,
+                "sample_steps": 4,
+                "sample_shift": 2.0,
+                "sample_text_guide_scale": 1.0,
+                "sample_audio_guide_scale": 2.0,
+                "use_teacache": True,
+                "teacache_thresh": 0.25,
+            }
+        if preset == "fast":
+            return {
+                "size": "infinitetalk-480",
+                "mode": "clip",
+                "frame_num": 41,
+                "sample_steps": 4,
+                "sample_shift": 2.0,
+                "sample_text_guide_scale": 1.0,
+                "sample_audio_guide_scale": 2.0,
+                "use_teacache": True,
+                "teacache_thresh": 0.3,
+            }
+        return {}
 
     def _build_generation_extras(self, generation) -> SimpleNamespace:
         return SimpleNamespace(
