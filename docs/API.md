@@ -230,6 +230,7 @@ docker run --gpus all --rm \
   -e INFINITETALK_KOKORO_DIR=/workspace/weights/Kokoro-82M \
   -e INFINITETALK_DATA_ROOT=/workspace/runtime_data \
   -e INFINITETALK_AUTO_DOWNLOAD_MODELS=true \
+  -e INFINITETALK_AUTO_DOWNLOAD_ACCEL_MODELS=true \
   -e INFINITETALK_DEFAULT_PRESET=quality \
   -e INFINITETALK_LIGHTX2V_QUALITY_MODEL_DIR=/workspace/weights/SekoTalk-Distill \
   -e INFINITETALK_LIGHTX2V_BALANCED_MODEL_DIR=/workspace/weights/SekoTalk-Distill-fp8 \
@@ -243,7 +244,7 @@ Notes:
 
 - The container now runs a bootstrap step before `uvicorn`.
 - Missing core models are downloaded automatically when `INFINITETALK_AUTO_DOWNLOAD_MODELS=true`.
-- Accelerated LightX2V bundles are not auto-downloaded by this API image yet. Mount them into the container.
+- When `INFINITETALK_AUTO_DOWNLOAD_ACCEL_MODELS=true`, startup will auto-download the default accelerated preset bundle from `lightx2v/Wan2.1-Distill-Models` if the target directory is missing.
 - `quality`, `balanced`, and `fast` now use the official LightX2V `SekoTalk` runner instead of the legacy `WanModel.load_state_dict(...)` path.
 - Kokoro TTS weights are optional and controlled by `INFINITETALK_AUTO_DOWNLOAD_KOKORO`.
 - On Runpod, mounting your network volume at `/workspace` is the simplest layout.
