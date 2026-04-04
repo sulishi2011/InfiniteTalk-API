@@ -252,9 +252,24 @@ class InfiniteTalkRuntime:
         preset: str,
         model_dir: str,
     ) -> LightX2VPresetSpec:
+        model_root = Path(model_dir)
+        audio_encoder_path = str(
+            self._resolve_existing_dir(
+                self.config.lightx2v_audio_encoder_dir,
+                "INFINITETALK_LIGHTX2V_AUDIO_ENCODER_DIR",
+            )
+        )
+        adapter_model_path = str(
+            self._resolve_existing_file(
+                self.config.infinitetalk_dir,
+                "INFINITETALK_MODEL_PATH",
+            )
+        )
         common_kwargs = {
             "preset": preset,
             "model_path": model_dir,
+            "audio_encoder_path": audio_encoder_path,
+            "adapter_model_path": adapter_model_path,
             "lightx2v_root": self.config.lightx2v_root,
             "attn_mode": self.config.lightx2v_attn_mode,
             "output_fps": self.config.lightx2v_output_fps,
@@ -272,6 +287,34 @@ class InfiniteTalkRuntime:
         if preset == "quality":
             return LightX2VPresetSpec(
                 **common_kwargs,
+                dit_ckpt=str(
+                    self._resolve_existing_file(
+                        str(model_root / "distill_models" / "distill_model.safetensors"),
+                        "INFINITETALK_LIGHTX2V_QUALITY_MODEL_DIR",
+                    )
+                ),
+                t5_ckpt=str(
+                    self._resolve_existing_file(
+                        str(model_root / "distill_models" / "models_t5_umt5-xxl-enc-bf16.pth"),
+                        "INFINITETALK_LIGHTX2V_QUALITY_MODEL_DIR",
+                    )
+                ),
+                clip_ckpt=str(
+                    self._resolve_existing_file(
+                        str(
+                            model_root
+                            / "distill_models"
+                            / "models_clip_open-clip-xlm-roberta-large-vit-huge-14.pth"
+                        ),
+                        "INFINITETALK_LIGHTX2V_QUALITY_MODEL_DIR",
+                    )
+                ),
+                vae_path=str(
+                    self._resolve_existing_file(
+                        str(model_root / "distill_models" / "Wan2.1_VAE.pth"),
+                        "INFINITETALK_LIGHTX2V_QUALITY_MODEL_DIR",
+                    )
+                ),
                 use_31_block=True,
                 feature_caching="NoCaching",
                 teacache_thresh=None,
@@ -284,24 +327,72 @@ class InfiniteTalkRuntime:
         if preset == "balanced":
             return LightX2VPresetSpec(
                 **common_kwargs,
-                use_31_block=False,
+                dit_ckpt=str(
+                    self._resolve_existing_dir(
+                        str(model_root / "distill_fp8"),
+                        "INFINITETALK_LIGHTX2V_BALANCED_MODEL_DIR",
+                    )
+                ),
+                t5_ckpt=str(
+                    self._resolve_existing_file(
+                        str(model_root / "distill_fp8" / "models_t5_umt5-xxl-enc-fp8.pth"),
+                        "INFINITETALK_LIGHTX2V_BALANCED_MODEL_DIR",
+                    )
+                ),
+                clip_ckpt=str(
+                    self._resolve_existing_file(
+                        str(model_root / "distill_fp8" / "clip-fp8.pth"),
+                        "INFINITETALK_LIGHTX2V_BALANCED_MODEL_DIR",
+                    )
+                ),
+                vae_path=str(
+                    self._resolve_existing_file(
+                        str(model_root / "distill_fp8" / "Wan2.1_VAE.pth"),
+                        "INFINITETALK_LIGHTX2V_BALANCED_MODEL_DIR",
+                    )
+                ),
+                use_31_block=True,
                 feature_caching="Tea",
                 teacache_thresh=0.25,
                 dit_quantized=True,
                 text_encoder_quantized=True,
                 image_encoder_quantized=True,
-                adapter_quantized=True,
+                adapter_quantized=False,
                 quant_scheme="fp8-triton",
             )
         return LightX2VPresetSpec(
             **common_kwargs,
+            dit_ckpt=str(
+                self._resolve_existing_dir(
+                    str(model_root / "distill_int8"),
+                    "INFINITETALK_LIGHTX2V_FAST_MODEL_DIR",
+                )
+            ),
+            t5_ckpt=str(
+                self._resolve_existing_file(
+                    str(model_root / "distill_int8" / "models_t5_umt5-xxl-enc-int8.pth"),
+                    "INFINITETALK_LIGHTX2V_FAST_MODEL_DIR",
+                )
+            ),
+            clip_ckpt=str(
+                self._resolve_existing_file(
+                    str(model_root / "distill_int8" / "clip-int8.pth"),
+                    "INFINITETALK_LIGHTX2V_FAST_MODEL_DIR",
+                )
+            ),
+            vae_path=str(
+                self._resolve_existing_file(
+                    str(model_root / "distill_int8" / "Wan2.1_VAE.pth"),
+                    "INFINITETALK_LIGHTX2V_FAST_MODEL_DIR",
+                )
+            ),
             use_31_block=True,
             feature_caching="Tea",
             teacache_thresh=0.3,
             dit_quantized=True,
             text_encoder_quantized=True,
-            image_encoder_quantized=False,
-            adapter_quantized=True,
+            image_encoder_quantized=True,
+            adapter_quantized=False,
             quant_scheme="int8-triton",
         )
 

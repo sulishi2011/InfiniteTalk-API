@@ -16,6 +16,12 @@ from wan.utils.multitalk_utils import save_video_ffmpeg
 class LightX2VPresetSpec:
     preset: str
     model_path: str
+    dit_ckpt: str
+    t5_ckpt: str
+    clip_ckpt: str
+    vae_path: str
+    audio_encoder_path: str
+    adapter_model_path: str
     lightx2v_root: str
     attn_mode: str
     output_fps: int
@@ -72,6 +78,20 @@ class LightX2VBackend:
             model_cls="seko_talk",
             task="s2v",
         )
+        pipe.audio_encoder_path = spec.audio_encoder_path
+        pipe.adapter_model_path = spec.adapter_model_path
+        pipe.vae_path = spec.vae_path
+        if spec.dit_quantized:
+            pipe.dit_quantized_ckpt = spec.dit_ckpt
+            pipe.t5_quantized_ckpt = spec.t5_ckpt
+            if spec.image_encoder_quantized:
+                pipe.clip_quantized_ckpt = spec.clip_ckpt
+            else:
+                pipe.clip_original_ckpt = spec.clip_ckpt
+        else:
+            pipe.dit_original_ckpt = spec.dit_ckpt
+            pipe.t5_original_ckpt = spec.t5_ckpt
+            pipe.clip_original_ckpt = spec.clip_ckpt
         pipe.target_fps = spec.target_fps
         pipe.audio_sr = 16000
         pipe.video_duration = spec.video_duration

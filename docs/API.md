@@ -115,9 +115,9 @@ The service supports two driver modes:
 Preset notes:
 
 - `base`: original full Wan + official InfiniteTalk weights.
-- `quality`: official LightX2V `SekoTalk-Distill` backend.
-- `balanced`: official LightX2V `SekoTalk-Distill-fp8` backend.
-- `fast`: official LightX2V `SekoTalk-Distill-int8` backend.
+- `quality`: LightX2V SekoTalk backend using the BF16 4-step distill checkpoints.
+- `balanced`: LightX2V SekoTalk backend using the FP8 4-step distill checkpoints.
+- `fast`: LightX2V SekoTalk backend using the INT8 4-step distill checkpoints.
 
 Accelerated LightX2V preset notes:
 
@@ -125,6 +125,7 @@ Accelerated LightX2V preset notes:
 - `generation.scene_seg=true` is only available on `base`.
 - For two-speaker jobs, `bbox.person1` and `bbox.person2` are required because LightX2V expects per-speaker masks.
 - If the avatar media is a video, the accelerated presets use its first frame as the reference image.
+- The accelerated presets reuse `INFINITETALK_MODEL_PATH` as the SekoTalk audio-adapter weights and expect a LightX2V audio encoder directory at `INFINITETALK_LIGHTX2V_AUDIO_ENCODER_DIR`.
 
 Single-speaker upload example:
 
@@ -232,6 +233,7 @@ docker run --gpus all --rm \
   -e INFINITETALK_AUTO_DOWNLOAD_MODELS=true \
   -e INFINITETALK_AUTO_DOWNLOAD_ACCEL_MODELS=true \
   -e INFINITETALK_DEFAULT_PRESET=quality \
+  -e INFINITETALK_LIGHTX2V_AUDIO_ENCODER_DIR=/workspace/weights/TencentGameMate-chinese-hubert-large \
   -e INFINITETALK_LIGHTX2V_QUALITY_MODEL_DIR=/workspace/weights/SekoTalk-Distill \
   -e INFINITETALK_LIGHTX2V_BALANCED_MODEL_DIR=/workspace/weights/SekoTalk-Distill-fp8 \
   -e INFINITETALK_LIGHTX2V_FAST_MODEL_DIR=/workspace/weights/SekoTalk-Distill-int8 \
@@ -244,8 +246,9 @@ Notes:
 
 - The container now runs a bootstrap step before `uvicorn`.
 - Missing core models are downloaded automatically when `INFINITETALK_AUTO_DOWNLOAD_MODELS=true`.
-- When `INFINITETALK_AUTO_DOWNLOAD_ACCEL_MODELS=true`, startup will auto-download the default accelerated preset bundle from `lightx2v/Wan2.1-Distill-Models` if the target directory is missing.
+- When `INFINITETALK_AUTO_DOWNLOAD_ACCEL_MODELS=true`, startup will auto-download the default accelerated preset assets from `lightx2v/Wan2.1-I2V-14B-480P-StepDistill-CfgDistill-Lightx2v` plus `TencentGameMate/chinese-hubert-large` if the target directory is missing.
 - `quality`, `balanced`, and `fast` now use the official LightX2V `SekoTalk` runner instead of the legacy `WanModel.load_state_dict(...)` path.
+- The LightX2V runner reuses `INFINITETALK_MODEL_PATH` as its audio-adapter checkpoint source.
 - Kokoro TTS weights are optional and controlled by `INFINITETALK_AUTO_DOWNLOAD_KOKORO`.
 - On Runpod, mounting your network volume at `/workspace` is the simplest layout.
 
@@ -253,8 +256,12 @@ Suggested accelerated model sources:
 
 - Official LightX2V framework:
   [ModelTC/LightX2V](https://github.com/ModelTC/LightX2V)
-- Official LightX2V model bundles:
+- Official LightX2V step-distill model roots:
+  [lightx2v/Wan2.1-I2V-14B-480P-StepDistill-CfgDistill-Lightx2v](https://huggingface.co/lightx2v/Wan2.1-I2V-14B-480P-StepDistill-CfgDistill-Lightx2v)
+- Official LightX2V single-file distill models:
   [lightx2v/Wan2.1-Distill-Models](https://huggingface.co/lightx2v/Wan2.1-Distill-Models)
+- Official LightX2V encoder and tokenizer assets:
+  [lightx2v/Encoders](https://huggingface.co/lightx2v/Encoders)
 - Official base weights, tokenizer assets, and wav2vec:
   [Wan-AI/Wan2.1-I2V-14B-480P](https://huggingface.co/Wan-AI/Wan2.1-I2V-14B-480P),
   [TencentGameMate/chinese-wav2vec2-base](https://huggingface.co/TencentGameMate/chinese-wav2vec2-base),

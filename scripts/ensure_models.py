@@ -1,9 +1,7 @@
 from __future__ import annotations
 
 import os
-import shutil
 import sys
-import tempfile
 from pathlib import Path
 
 from huggingface_hub import hf_hub_download, snapshot_download
@@ -38,35 +36,21 @@ def download_snapshot(repo_id: str, local_dir: Path, token: str | None) -> None:
     )
 
 
-def download_snapshot_subdir(
+def download_snapshot_patterns(
     repo_id: str,
-    remote_subdir: str,
-    target_dir: Path,
+    local_dir: Path,
     token: str | None,
+    allow_patterns: list[str],
 ) -> None:
-    target_dir.parent.mkdir(parents=True, exist_ok=True)
-    log(f"Downloading {repo_id}:{remote_subdir}/ -> {target_dir}")
-    with tempfile.TemporaryDirectory(dir=str(target_dir.parent)) as tmp_dir:
-        tmp_path = Path(tmp_dir)
-        snapshot_download(
-            repo_id=repo_id,
-            local_dir=str(tmp_path),
-            allow_patterns=[f"{remote_subdir}/**"],
-            token=token,
-        )
-        repo_name = repo_id.split("/")[-1]
-        candidates = [
-            tmp_path / remote_subdir,
-            tmp_path / repo_name / remote_subdir,
-        ]
-        source_dir = next((candidate for candidate in candidates if candidate.exists()), None)
-        if source_dir is None:
-            raise FileNotFoundError(
-                f"Downloaded repo {repo_id}, but could not find subdir {remote_subdir}."
-            )
-        if target_dir.exists():
-            shutil.rmtree(target_dir)
-        shutil.move(str(source_dir), str(target_dir))
+    local_dir.mkdir(parents=True, exist_ok=True)
+    joined = ", ".join(allow_patterns)
+    log(f"Downloading {repo_id} [{joined}] -> {local_dir}")
+    snapshot_download(
+        repo_id=repo_id,
+        local_dir=str(local_dir),
+        allow_patterns=allow_patterns,
+        token=token,
+    )
 
 
 def download_file(
@@ -190,7 +174,17 @@ def ensure_accelerated_models() -> None:
 
     bundle_repo = os.getenv(
         "INFINITETALK_LIGHTX2V_BUNDLE_REPO",
-        "lightx2v/Wan2.1-Distill-Models",
+        "lightx2v/Wan2.1-I2V-14B-480P-StepDistill-CfgDistill-Lightx2v",
+    )
+    audio_encoder_repo = os.getenv(
+        "INFINITETALK_LIGHTX2V_AUDIO_ENCODER_REPO",
+        "TencentGameMate/chinese-hubert-large",
+    )
+    audio_encoder_dir = Path(
+        os.getenv(
+            "INFINITETALK_LIGHTX2V_AUDIO_ENCODER_DIR",
+            "/workspace/weights/TencentGameMate-chinese-hubert-large",
+        )
     )
 
     preset_model_dirs = {
@@ -213,54 +207,116 @@ def ensure_accelerated_models() -> None:
             )
         ),
     }
-    preset_remote_subdirs = {
-        "quality": os.getenv(
-            "INFINITETALK_LIGHTX2V_QUALITY_BUNDLE_SUBDIR",
-            "SekoTalk-Distill",
-        ),
-        "balanced": os.getenv(
-            "INFINITETALK_LIGHTX2V_BALANCED_BUNDLE_SUBDIR",
-            "SekoTalk-Distill-fp8",
-        ),
-        "fast": os.getenv(
-            "INFINITETALK_LIGHTX2V_FAST_BUNDLE_SUBDIR",
-            "SekoTalk-Distill-int8",
-        ),
+    preset_requirements = {
+        "quality": {
+            "required": [
+                "config.json",
+                "google/umt5-xxl/tokenizer.json",
+                "xlm-roberta-large/tokenizer.json",
+                "distill_models/distill_model.safetensors",
+                "distill_models/models_t5_umt5-xxl-enc-bf16.pth",
+                "distill_models/models_clip_open-clip-xlm-roberta-large-vit-huge-14.pth",
+                "distill_models/Wan2.1_VAE.pth",
+            ],
+            "download_patterns": [
+                "config.json",
+                "google/**",
+                "xlm-roberta-large/**",
+                "distill_models/**",
+            ],
+        },
+        "balanced": {
+            "required": [
+                "config.json",
+                "google/umt5-xxl/tokenizer.json",
+                "xlm-roberta-large/tokenizer.json",
+                "distill_fp8/non_block.safetensors",
+                "distill_fp8/models_t5_umt5-xxl-enc-fp8.pth",
+                "distill_fp8/clip-fp8.pth",
+                "distill_fp8/Wan2.1_VAE.pth",
+            ],
+            "download_patterns": [
+                "config.json",
+                "google/**",
+                "xlm-roberta-large/**",
+                "distill_fp8/**",
+            ],
+        },
+        "fast": {
+            "required": [
+                "config.json",
+                "google/umt5-xxl/tokenizer.json",
+                "xlm-roberta-large/tokenizer.json",
+                "distill_int8/non_block.safetensors",
+                "distill_int8/models_t5_umt5-xxl-enc-int8.pth",
+                "distill_int8/clip-int8.pth",
+                "distill_int8/Wan2.1_VAE.pth",
+            ],
+            "download_patterns": [
+                "config.json",
+                "google/**",
+                "xlm-roberta-large/**",
+                "distill_int8/**",
+            ],
+        },
     }
 
     missing_messages: list[str] = []
     for preset in sorted(required_presets):
         model_dir = preset_model_dirs[preset]
-        remote_subdir = preset_remote_subdirs[preset]
-        if model_dir.exists():
-            if not model_dir.is_dir():
-                missing_messages.append(f"{model_dir} for preset '{preset}' is not a directory")
-                continue
-            if any(model_dir.iterdir()):
-                continue
+        requirement = preset_requirements[preset]
+        required_paths = [model_dir / rel_path for rel_path in requirement["required"]]
+        missing_required = [path for path in required_paths if not path.exists()]
+        if missing_required:
             if not auto_download:
-                missing_messages.append(f"empty model directory {model_dir} for preset '{preset}'")
-                continue
-            shutil.rmtree(model_dir)
+                missing_messages.append(
+                    f"missing {', '.join(str(path) for path in missing_required)} for preset '{preset}'"
+                )
+            else:
+                if model_dir.exists() and not model_dir.is_dir():
+                    missing_messages.append(f"{model_dir} for preset '{preset}' is not a directory")
+                    continue
+                download_snapshot_patterns(
+                    bundle_repo,
+                    model_dir,
+                    token,
+                    requirement["download_patterns"],
+                )
+                missing_required = [path for path in required_paths if not path.exists()]
+                if missing_required:
+                    missing_messages.append(
+                        f"downloaded {bundle_repo}, but still missing {', '.join(str(path) for path in missing_required)} for preset '{preset}'"
+                    )
 
+    audio_encoder_required = [
+        audio_encoder_dir / "config.json",
+        audio_encoder_dir / "preprocessor_config.json",
+        audio_encoder_dir / "chinese-hubert-large-fairseq-ckpt.pt",
+    ]
+    missing_audio_encoder = [path for path in audio_encoder_required if not path.exists()]
+    if missing_audio_encoder:
         if not auto_download:
-            missing_messages.append(f"missing {model_dir} for preset '{preset}'")
-            continue
-
-        download_snapshot_subdir(
-            bundle_repo,
-            remote_subdir,
-            model_dir,
-            token,
-        )
+            missing_messages.append(
+                "missing LightX2V audio encoder files: "
+                + ", ".join(str(path) for path in missing_audio_encoder)
+            )
+        else:
+            download_snapshot(audio_encoder_repo, audio_encoder_dir, token)
+            missing_audio_encoder = [path for path in audio_encoder_required if not path.exists()]
+            if missing_audio_encoder:
+                missing_messages.append(
+                    "downloaded LightX2V audio encoder repo, but still missing "
+                    + ", ".join(str(path) for path in missing_audio_encoder)
+                )
 
     if missing_messages:
         joined = "; ".join(missing_messages)
         raise FileNotFoundError(
-            "Accelerated preset model bundles are missing. "
-            f"{joined}. Mount the official LightX2V SekoTalk bundle directories into the "
-            "container, or set INFINITETALK_AUTO_DOWNLOAD_ACCEL_MODELS=true so startup can "
-            "download the matching preset bundle automatically."
+            "Accelerated preset models are missing. "
+            f"{joined}. Mount the official LightX2V StepDistill model roots plus the "
+            "TencentGameMate audio encoder into the container, or set "
+            "INFINITETALK_AUTO_DOWNLOAD_ACCEL_MODELS=true so startup can download the "
+            "matching preset assets automatically."
         )
 
 

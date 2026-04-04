@@ -61,6 +61,7 @@ class ServiceConfig:
     lightx2v_audio_encoder_offload: bool
     lightx2v_audio_adapter_offload: bool
     lightx2v_use_tiling_vae: bool
+    lightx2v_audio_encoder_dir: str
     lightx2v_quality_model_dir: str | None
     lightx2v_balanced_model_dir: str | None
     lightx2v_fast_model_dir: str | None
@@ -136,6 +137,10 @@ class ServiceConfig:
                 False,
             ),
             lightx2v_use_tiling_vae=_env_bool("INFINITETALK_LIGHTX2V_USE_TILING_VAE", True),
+            lightx2v_audio_encoder_dir=os.getenv(
+                "INFINITETALK_LIGHTX2V_AUDIO_ENCODER_DIR",
+                "/workspace/weights/TencentGameMate-chinese-hubert-large",
+            ),
             lightx2v_quality_model_dir=os.getenv(
                 "INFINITETALK_LIGHTX2V_QUALITY_MODEL_DIR",
                 "/workspace/weights/SekoTalk-Distill",
