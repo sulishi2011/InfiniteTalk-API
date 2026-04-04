@@ -115,9 +115,16 @@ The service supports two driver modes:
 Preset notes:
 
 - `base`: original full Wan + official InfiniteTalk weights.
-- `quality`: Lightx2v BF16 4-step distilled DiT, tuned for better quality while staying fast.
-- `balanced`: currently reuses the same BF16 distilled DiT, but applies more aggressive runtime defaults such as TeaCache. The Lightx2v FP8 single-file checkpoint format is not loaded directly by this backend yet.
-- `fast`: currently reuses the same BF16 distilled DiT, but uses shorter clip defaults for preview-style runs. The Lightx2v INT8 single-file checkpoint format is not loaded directly by this backend yet.
+- `quality`: official LightX2V `SekoTalk-Distill` backend.
+- `balanced`: official LightX2V `SekoTalk-Distill-fp8` backend.
+- `fast`: official LightX2V `SekoTalk-Distill-int8` backend.
+
+Accelerated LightX2V preset notes:
+
+- `quality`, `balanced`, and `fast` currently support `generation.mode="clip"` only.
+- `generation.scene_seg=true` is only available on `base`.
+- For two-speaker jobs, `bbox.person1` and `bbox.person2` are required because LightX2V expects per-speaker masks.
+- If the avatar media is a video, the accelerated presets use its first frame as the reference image.
 
 Single-speaker upload example:
 
@@ -223,11 +230,10 @@ docker run --gpus all --rm \
   -e INFINITETALK_KOKORO_DIR=/workspace/weights/Kokoro-82M \
   -e INFINITETALK_DATA_ROOT=/workspace/runtime_data \
   -e INFINITETALK_AUTO_DOWNLOAD_MODELS=true \
-  -e INFINITETALK_AUTO_DOWNLOAD_ACCEL_MODELS=true \
   -e INFINITETALK_DEFAULT_PRESET=quality \
-  -e INFINITETALK_QUALITY_DIT_PATH=/workspace/weights/lightx2v/Wan2.1-Distill-Models/wan2.1_i2v_480p_lightx2v_4step.safetensors \
-  -e INFINITETALK_DISTILLED_T5_PATH=/workspace/weights/Kijai/WanVideo_comfy/umt5-xxl-enc-fp8_e4m3fn.safetensors \
-  -e INFINITETALK_DISTILLED_MODEL_PATH=/workspace/weights/Kijai/WanVideo_comfy/InfiniteTalk/Wan2_1-InfiniTetalk-Single_fp16.safetensors \
+  -e INFINITETALK_LIGHTX2V_QUALITY_MODEL_DIR=/workspace/weights/SekoTalk-Distill \
+  -e INFINITETALK_LIGHTX2V_BALANCED_MODEL_DIR=/workspace/weights/SekoTalk-Distill-fp8 \
+  -e INFINITETALK_LIGHTX2V_FAST_MODEL_DIR=/workspace/weights/SekoTalk-Distill-int8 \
   -e INFINITETALK_AUTO_DOWNLOAD_KOKORO=false \
   -e HF_TOKEN=hf_xxx_if_needed \
   infinitetalk-api:latest
@@ -237,17 +243,17 @@ Notes:
 
 - The container now runs a bootstrap step before `uvicorn`.
 - Missing core models are downloaded automatically when `INFINITETALK_AUTO_DOWNLOAD_MODELS=true`.
-- Accelerated preset models are optional and controlled by `INFINITETALK_AUTO_DOWNLOAD_ACCEL_MODELS`.
-- `balanced` and `fast` currently reuse the BF16 distilled DiT in this API backend. Their preset names still change the default generation parameters.
+- Accelerated LightX2V bundles are not auto-downloaded by this API image yet. Mount them into the container.
+- `quality`, `balanced`, and `fast` now use the official LightX2V `SekoTalk` runner instead of the legacy `WanModel.load_state_dict(...)` path.
 - Kokoro TTS weights are optional and controlled by `INFINITETALK_AUTO_DOWNLOAD_KOKORO`.
 - On Runpod, mounting your network volume at `/workspace` is the simplest layout.
 
 Suggested accelerated model sources:
 
-- Lightx2v distilled DiT files:
+- Official LightX2V framework:
+  [ModelTC/LightX2V](https://github.com/ModelTC/LightX2V)
+- Official LightX2V model bundles:
   [lightx2v/Wan2.1-Distill-Models](https://huggingface.co/lightx2v/Wan2.1-Distill-Models)
-- Distilled FP8 T5 and InfiniteTalk patch used by ComfyUI workflows:
-  [Kijai/WanVideo_comfy](https://huggingface.co/Kijai/WanVideo_comfy)
 - Official base weights, tokenizer assets, and wav2vec:
   [Wan-AI/Wan2.1-I2V-14B-480P](https://huggingface.co/Wan-AI/Wan2.1-I2V-14B-480P),
   [TencentGameMate/chinese-wav2vec2-base](https://huggingface.co/TencentGameMate/chinese-wav2vec2-base),

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 import os
 import re
@@ -19,6 +20,7 @@ import soundfile as sf
 import torch
 from einops import rearrange
 from kokoro import KPipeline
+from PIL import Image
 from transformers import Wav2Vec2FeatureExtractor
 
 import wan
@@ -30,6 +32,7 @@ from wan.utils.utils import is_video, split_wav_librosa
 
 from .common import deep_merge
 from .config import ServiceConfig
+from .lightx2v_backend import LightX2VBackend, LightX2VPresetSpec
 from .schemas import AvatarRecord, JobCreatePayload, JobRecord
 
 StatusCallback = Callable[[str, dict[str, Any] | None], None]
@@ -51,14 +54,16 @@ def _default_sample_shift(size: str) -> float:
 class PipelineSpec:
     key: str
     requested_preset: str
-    checkpoint_dir: str
-    infinitetalk_dir: str
-    quant_dir: str | None
-    dit_path: str | None
-    lora_dirs: list[str] | None
-    lora_scales: list[float] | None
-    quant: str | None
-    t5_checkpoint_path: str | None
+    backend: str
+    checkpoint_dir: str | None = None
+    infinitetalk_dir: str | None = None
+    quant_dir: str | None = None
+    dit_path: str | None = None
+    lora_dirs: list[str] | None = None
+    lora_scales: list[float] | None = None
+    quant: str | None = None
+    t5_checkpoint_path: str | None = None
+    lightx2v_model_dir: str | None = None
 
 
 class InfiniteTalkRuntime:
@@ -82,8 +87,9 @@ class InfiniteTalkRuntime:
             if world_size != 1:
                 raise RuntimeError("The API service currently supports single-process, single-GPU deployment only.")
 
-            self._ensure_shared_components_loaded()
             pipeline_spec = self._resolve_pipeline_spec(desired_preset)
+            if pipeline_spec.backend == "legacy":
+                self._ensure_shared_components_loaded()
             if self._pipeline is not None and self._pipeline_key == pipeline_spec.key:
                 return
 
@@ -137,6 +143,7 @@ class InfiniteTalkRuntime:
             return PipelineSpec(
                 key="|".join(key_parts),
                 requested_preset="base",
+                backend="legacy",
                 checkpoint_dir=self.config.ckpt_dir,
                 infinitetalk_dir=base_patch,
                 quant_dir=self.config.quant_dir,
@@ -147,85 +154,63 @@ class InfiniteTalkRuntime:
                 t5_checkpoint_path=None,
             )
 
-        dit_env_names = {
-            "quality": "INFINITETALK_QUALITY_DIT_PATH",
-            "balanced": "INFINITETALK_BALANCED_DIT_PATH",
-            "fast": "INFINITETALK_FAST_DIT_PATH",
+        model_dir_env_names = {
+            "quality": "INFINITETALK_LIGHTX2V_QUALITY_MODEL_DIR",
+            "balanced": "INFINITETALK_LIGHTX2V_BALANCED_MODEL_DIR",
+            "fast": "INFINITETALK_LIGHTX2V_FAST_MODEL_DIR",
         }
-        requested_dit_path = {
-            "quality": self.config.quality_dit_path,
-            "balanced": self.config.balanced_dit_path,
-            "fast": self.config.fast_dit_path,
+        requested_model_dir = {
+            "quality": self.config.lightx2v_quality_model_dir,
+            "balanced": self.config.lightx2v_balanced_model_dir,
+            "fast": self.config.lightx2v_fast_model_dir,
         }.get(preset)
-        if preset in {"balanced", "fast"} and not requested_dit_path:
-            requested_dit_path = self.config.quality_dit_path
-        if not requested_dit_path:
+        if not requested_model_dir:
             raise FileNotFoundError(
-                f"Preset '{preset}' is not configured. Set the matching distilled model path env var."
+                f"Preset '{preset}' is not configured. Set {model_dir_env_names[preset]}."
             )
-        requested_dit_path = str(
-            self._resolve_existing_file(requested_dit_path, dit_env_names[preset])
-        )
-
-        effective_dit_path = requested_dit_path
-        if preset in {"balanced", "fast"} and self._is_quantized_lightx2v_checkpoint(requested_dit_path):
-            quality_dit_path = self.config.quality_dit_path
-            if not quality_dit_path:
-                raise FileNotFoundError(
-                    f"Preset '{preset}' currently needs a BF16 fallback. Set INFINITETALK_QUALITY_DIT_PATH."
-                )
-            quality_dit_path = str(
-                self._resolve_existing_file(quality_dit_path, "INFINITETALK_QUALITY_DIT_PATH")
-            )
-            if Path(quality_dit_path) != Path(requested_dit_path):
-                LOGGER.warning(
-                    "Preset '%s' points to a quantized LightX2V single-file checkpoint (%s). "
-                    "This API backend can directly load BF16 distilled DiT checkpoints, but not the "
-                    "FP8/INT8 LightX2V single-file format yet. Falling back to %s while keeping preset defaults.",
-                    preset,
-                    requested_dit_path,
-                    quality_dit_path,
-                )
-            effective_dit_path = quality_dit_path
-
-        distilled_patch = self.config.distilled_infinitetalk_dir or base_patch
-        distilled_patch = str(
-            self._resolve_existing_file(distilled_patch, "INFINITETALK_DISTILLED_MODEL_PATH")
-        )
-        if not self.config.distilled_t5_path:
-            raise FileNotFoundError(
-                f"Preset '{preset}' requires INFINITETALK_DISTILLED_T5_PATH to be set."
-            )
-        distilled_t5_path = str(
-            self._resolve_existing_file(
-                self.config.distilled_t5_path,
-                "INFINITETALK_DISTILLED_T5_PATH",
-            )
+        requested_model_dir = str(
+            self._resolve_existing_dir(requested_model_dir, model_dir_env_names[preset])
         )
         cache_key = "|".join(
             [
-                "distilled",
-                self.config.ckpt_dir,
-                effective_dit_path,
-                distilled_patch,
-                distilled_t5_path,
+                "lightx2v",
+                preset,
+                requested_model_dir,
+                self.config.lightx2v_attn_mode,
+                str(self.config.lightx2v_output_fps),
+                str(self.config.lightx2v_target_fps),
+                str(self.config.lightx2v_video_duration),
+                self.config.lightx2v_offload_granularity,
+                str(self.config.lightx2v_cpu_offload),
+                str(self.config.lightx2v_text_encoder_offload),
+                str(self.config.lightx2v_image_encoder_offload),
+                str(self.config.lightx2v_vae_offload),
+                str(self.config.lightx2v_audio_encoder_offload),
+                str(self.config.lightx2v_audio_adapter_offload),
+                str(self.config.lightx2v_use_tiling_vae),
             ]
         )
-
         return PipelineSpec(
             key=cache_key,
             requested_preset=preset,
-            checkpoint_dir=self.config.ckpt_dir,
-            infinitetalk_dir=distilled_patch,
-            quant_dir=None,
-            dit_path=effective_dit_path,
-            lora_dirs=None,
-            lora_scales=None,
-            quant=None,
-            t5_checkpoint_path=distilled_t5_path,
+            backend="lightx2v",
+            lightx2v_model_dir=requested_model_dir,
         )
 
     def _build_pipeline(self, pipeline_spec: PipelineSpec):
+        if pipeline_spec.backend == "lightx2v":
+            LOGGER.info(
+                "Loading LightX2V SekoTalk backend for preset '%s' from %s",
+                pipeline_spec.requested_preset,
+                pipeline_spec.lightx2v_model_dir,
+            )
+            return LightX2VBackend(
+                self._build_lightx2v_preset_spec(
+                    pipeline_spec.requested_preset,
+                    pipeline_spec.lightx2v_model_dir or "",
+                )
+            )
+
         cfg = WAN_CONFIGS[self.config.task]
         device_id = int(os.getenv("LOCAL_RANK", "0"))
         LOGGER.info(
@@ -262,9 +247,63 @@ class InfiniteTalkRuntime:
             )
         return pipeline
 
-    def _is_quantized_lightx2v_checkpoint(self, path: str) -> bool:
-        lowered_name = Path(path).name.lower()
-        return any(token in lowered_name for token in ("scaled_fp8", "int8", "nvfp4"))
+    def _build_lightx2v_preset_spec(
+        self,
+        preset: str,
+        model_dir: str,
+    ) -> LightX2VPresetSpec:
+        common_kwargs = {
+            "preset": preset,
+            "model_path": model_dir,
+            "lightx2v_root": self.config.lightx2v_root,
+            "attn_mode": self.config.lightx2v_attn_mode,
+            "output_fps": self.config.lightx2v_output_fps,
+            "target_fps": self.config.lightx2v_target_fps,
+            "video_duration": self.config.lightx2v_video_duration,
+            "offload_granularity": self.config.lightx2v_offload_granularity,
+            "cpu_offload": self.config.lightx2v_cpu_offload,
+            "text_encoder_offload": self.config.lightx2v_text_encoder_offload,
+            "image_encoder_offload": self.config.lightx2v_image_encoder_offload,
+            "vae_offload": self.config.lightx2v_vae_offload,
+            "audio_encoder_offload": self.config.lightx2v_audio_encoder_offload,
+            "audio_adapter_offload": self.config.lightx2v_audio_adapter_offload,
+            "use_tiling_vae": self.config.lightx2v_use_tiling_vae,
+        }
+        if preset == "quality":
+            return LightX2VPresetSpec(
+                **common_kwargs,
+                use_31_block=True,
+                feature_caching="NoCaching",
+                teacache_thresh=None,
+                dit_quantized=False,
+                text_encoder_quantized=False,
+                image_encoder_quantized=False,
+                adapter_quantized=False,
+                quant_scheme=None,
+            )
+        if preset == "balanced":
+            return LightX2VPresetSpec(
+                **common_kwargs,
+                use_31_block=False,
+                feature_caching="Tea",
+                teacache_thresh=0.25,
+                dit_quantized=True,
+                text_encoder_quantized=True,
+                image_encoder_quantized=True,
+                adapter_quantized=True,
+                quant_scheme="fp8-triton",
+            )
+        return LightX2VPresetSpec(
+            **common_kwargs,
+            use_31_block=True,
+            feature_caching="Tea",
+            teacache_thresh=0.3,
+            dit_quantized=True,
+            text_encoder_quantized=True,
+            image_encoder_quantized=False,
+            adapter_quantized=True,
+            quant_scheme="int8-triton",
+        )
 
     def _unload_pipeline(self) -> None:
         if self._pipeline is None:
@@ -330,6 +369,19 @@ class InfiniteTalkRuntime:
             job,
             source_dir,
         )
+
+        if isinstance(self._pipeline, LightX2VBackend):
+            if status_callback:
+                status_callback("preprocessing", {"stage": "prepare_lightx2v_inputs"})
+            return self._generate_lightx2v_job(
+                payload=payload,
+                avatar=avatar,
+                prompt=prompt,
+                bbox=bbox,
+                source_audio_paths=source_audio_paths,
+                output_dir=output_dir,
+                status_callback=status_callback,
+            )
 
         cond_lists = self._build_condition_lists(
             media_path=avatar.media_path,
@@ -410,6 +462,224 @@ class InfiniteTalkRuntime:
             "result_audio_path": str(final_audio_path),
             "source_audio_paths": [str(path) for path in source_audio_paths],
         }
+
+    def _generate_lightx2v_job(
+        self,
+        *,
+        payload: JobCreatePayload,
+        avatar: AvatarRecord,
+        prompt: str,
+        bbox: dict[str, list[float]] | None,
+        source_audio_paths: list[Path],
+        output_dir: Path,
+        status_callback: StatusCallback | None,
+    ) -> dict[str, Any]:
+        generation = payload.generation
+        if generation.mode != "clip":
+            raise ValueError(
+                f"Preset '{generation.preset}' only supports generation.mode='clip' in the "
+                "official LightX2V backend. Use preset 'base' for streaming mode."
+            )
+        if generation.scene_seg:
+            raise ValueError(
+                f"Preset '{generation.preset}' does not support generation.scene_seg in the "
+                "official LightX2V backend. Use preset 'base' for scene segmentation."
+            )
+
+        lightx2v_input_dir = output_dir.parent / "lightx2v_inputs"
+        lightx2v_input_dir.mkdir(parents=True, exist_ok=True)
+
+        if status_callback:
+            status_callback("preprocessing", {"stage": "prepare_reference_image"})
+        image_path, image_size = self._prepare_lightx2v_reference_image(
+            media_path=avatar.media_path,
+            work_dir=lightx2v_input_dir,
+        )
+
+        if status_callback:
+            status_callback("preprocessing", {"stage": "prepare_audio_bundle"})
+        audio_path = self._prepare_lightx2v_audio_input(
+            payload=payload,
+            source_audio_paths=source_audio_paths,
+            bbox=bbox,
+            image_size=image_size,
+            work_dir=lightx2v_input_dir,
+        )
+
+        if status_callback:
+            status_callback(
+                "generating",
+                {
+                    "stage": "generate_clip",
+                    "backend": "lightx2v",
+                },
+            )
+        output_prefix = output_dir / "result"
+        result = self._pipeline.generate(
+            prompt=prompt,
+            negative_prompt=payload.negative_prompt,
+            image_path=str(image_path),
+            audio_path=str(audio_path),
+            generation=generation,
+            output_prefix=output_prefix,
+        )
+        result["source_audio_paths"] = [str(path) for path in source_audio_paths]
+        return result
+
+    def _prepare_lightx2v_reference_image(
+        self,
+        *,
+        media_path: str,
+        work_dir: Path,
+    ) -> tuple[Path, tuple[int, int]]:
+        source_path = Path(media_path)
+        reference_path = work_dir / "reference.png"
+
+        if is_video(str(source_path)):
+            self._extract_first_frame(source_path, reference_path)
+        else:
+            with Image.open(source_path) as image:
+                image.convert("RGB").save(reference_path)
+
+        with Image.open(reference_path) as image:
+            rgb_image = image.convert("RGB")
+            image_size = rgb_image.size
+            rgb_image.save(reference_path)
+        return reference_path, image_size
+
+    def _extract_first_frame(self, video_path: Path, destination: Path) -> None:
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        subprocess.run(
+            [
+                "ffmpeg",
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-y",
+                "-i",
+                str(video_path),
+                "-frames:v",
+                "1",
+                str(destination),
+            ],
+            check=True,
+        )
+
+    def _prepare_lightx2v_audio_input(
+        self,
+        *,
+        payload: JobCreatePayload,
+        source_audio_paths: list[Path],
+        bbox: dict[str, list[float]] | None,
+        image_size: tuple[int, int],
+        work_dir: Path,
+    ) -> Path:
+        audio_dir = work_dir / "audio"
+        audio_dir.mkdir(parents=True, exist_ok=True)
+        target_samples = int(
+            round(payload.generation.frame_num * 16000 / self.config.lightx2v_target_fps)
+        )
+
+        if len(source_audio_paths) == 1:
+            single_audio = self._clip_audio_array(
+                self._audio_prepare_single(source_audio_paths[0]),
+                target_samples,
+            )
+            audio_path = audio_dir / "speaker_1.wav"
+            sf.write(audio_path, single_audio, 16000)
+            return audio_path
+
+        if len(source_audio_paths) != 2:
+            raise ValueError("LightX2V presets support one or two aligned speaker tracks only.")
+        if bbox is None:
+            raise ValueError(
+                f"Preset '{payload.generation.preset}' requires bbox.person1 and bbox.person2 "
+                "for two-speaker jobs."
+            )
+
+        if payload.driver.type == "tts":
+            speaker_audio = [
+                self._audio_prepare_single(source_audio_paths[0]),
+                self._audio_prepare_single(source_audio_paths[1]),
+            ]
+        else:
+            aligned_1, aligned_2, _ = self._audio_prepare_multi(
+                source_audio_paths[0],
+                source_audio_paths[1],
+                payload.driver.audio_type,
+            )
+            speaker_audio = [aligned_1, aligned_2]
+
+        talk_objects = []
+        for speaker_index, speaker_name in enumerate(("person1", "person2"), start=1):
+            if speaker_name not in bbox:
+                raise ValueError(
+                    f"bbox.{speaker_name} is required for two-speaker LightX2V jobs."
+                )
+            audio_file_name = f"{speaker_name}.wav"
+            mask_file_name = f"{speaker_name}_mask.png"
+            audio_path = audio_dir / audio_file_name
+            mask_path = audio_dir / mask_file_name
+            sf.write(
+                audio_path,
+                self._clip_audio_array(speaker_audio[speaker_index - 1], target_samples),
+                16000,
+            )
+            self._write_bbox_mask(mask_path, bbox[speaker_name], image_size)
+            talk_objects.append(
+                {
+                    "audio": audio_file_name,
+                    "mask": mask_file_name,
+                }
+            )
+
+        (audio_dir / "config.json").write_text(
+            json.dumps({"talk_objects": talk_objects}, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        return audio_dir
+
+    def _clip_audio_array(self, audio_array: np.ndarray, target_samples: int) -> np.ndarray:
+        clipped = np.asarray(audio_array, dtype=np.float32).reshape(-1)
+        if clipped.shape[0] >= target_samples:
+            return clipped[:target_samples]
+        return np.pad(clipped, (0, target_samples - clipped.shape[0]))
+
+    def _write_bbox_mask(
+        self,
+        mask_path: Path,
+        bbox: list[float],
+        image_size: tuple[int, int],
+    ) -> None:
+        if len(bbox) != 4:
+            raise ValueError(
+                "Each bbox entry must contain four numbers: [x1, y1, x2, y2]."
+            )
+
+        width, height = image_size
+        raw_bbox = [float(value) for value in bbox]
+        if all(0.0 <= value <= 1.0 for value in raw_bbox):
+            x1, y1, x2, y2 = (
+                raw_bbox[0] * width,
+                raw_bbox[1] * height,
+                raw_bbox[2] * width,
+                raw_bbox[3] * height,
+            )
+        else:
+            x1, y1, x2, y2 = raw_bbox
+
+        left, right = sorted((int(round(x1)), int(round(x2))))
+        top, bottom = sorted((int(round(y1)), int(round(y2))))
+        left = max(0, min(width, left))
+        right = max(0, min(width, right))
+        top = max(0, min(height, top))
+        bottom = max(0, min(height, bottom))
+        if right <= left or bottom <= top:
+            raise ValueError(f"Invalid bbox after clamping: {bbox}")
+
+        mask = np.zeros((height, width), dtype=np.uint8)
+        mask[top:bottom, left:right] = 255
+        Image.fromarray(mask, mode="L").save(mask_path)
 
     def _apply_generation_preset_defaults(self, request_payload: dict[str, Any]) -> dict[str, Any]:
         generation_payload = request_payload.setdefault("generation", {})

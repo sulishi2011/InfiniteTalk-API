@@ -32,8 +32,14 @@ RUN python -m pip install -U xformers==0.0.28 --index-url https://download.pytor
 RUN python -m pip install "misaki[en]" ninja psutil packaging
 RUN python -m pip install flash_attn==2.7.4.post1 --no-build-isolation
 RUN python -m pip install -r requirements-api.txt
+RUN python -m pip install av prometheus-client
 
 COPY . .
+
+ARG LIGHTX2V_REF=7216292de236447480d936e2dcaa7084dab48147
+RUN git clone https://github.com/ModelTC/LightX2V.git /opt/LightX2V \
+    && git -C /opt/LightX2V checkout ${LIGHTX2V_REF} \
+    && python -m pip install --no-deps -e /opt/LightX2V
 
 RUN chmod +x /app/scripts/entrypoint.sh
 
@@ -44,6 +50,8 @@ ENV INFINITETALK_API_HOST=0.0.0.0 \
     INFINITETALK_DATA_ROOT=/app/runtime_data \
     HF_HOME=/workspace/.cache/huggingface \
     HUGGINGFACE_HUB_CACHE=/workspace/.cache/huggingface/hub \
+    PYTHONPATH=/opt/LightX2V:$PYTHONPATH \
+    INFINITETALK_LIGHTX2V_ROOT=/opt/LightX2V \
     INFINITETALK_AUTO_DOWNLOAD_MODELS=true \
     INFINITETALK_AUTO_DOWNLOAD_ACCEL_MODELS=false \
     INFINITETALK_DEFAULT_PRESET=base \

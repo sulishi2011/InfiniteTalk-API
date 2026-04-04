@@ -48,6 +48,22 @@ class ServiceConfig:
     quality_dit_path: str | None
     balanced_dit_path: str | None
     fast_dit_path: str | None
+    lightx2v_root: str
+    lightx2v_attn_mode: str
+    lightx2v_output_fps: int
+    lightx2v_target_fps: int
+    lightx2v_video_duration: int
+    lightx2v_offload_granularity: str
+    lightx2v_cpu_offload: bool
+    lightx2v_text_encoder_offload: bool
+    lightx2v_image_encoder_offload: bool
+    lightx2v_vae_offload: bool
+    lightx2v_audio_encoder_offload: bool
+    lightx2v_audio_adapter_offload: bool
+    lightx2v_use_tiling_vae: bool
+    lightx2v_quality_model_dir: str | None
+    lightx2v_balanced_model_dir: str | None
+    lightx2v_fast_model_dir: str | None
     offload_model: bool
     num_persistent_param_in_dit: int | None
     default_preset: str
@@ -67,6 +83,7 @@ class ServiceConfig:
     @classmethod
     def from_env(cls) -> "ServiceConfig":
         data_root = Path(os.getenv("INFINITETALK_DATA_ROOT", "./runtime_data")).resolve()
+        offload_model = _env_bool("INFINITETALK_OFFLOAD_MODEL", True)
         return cls(
             host=os.getenv("INFINITETALK_API_HOST", "0.0.0.0"),
             port=int(os.getenv("INFINITETALK_API_PORT", "8000")),
@@ -91,7 +108,50 @@ class ServiceConfig:
             quality_dit_path=os.getenv("INFINITETALK_QUALITY_DIT_PATH") or None,
             balanced_dit_path=os.getenv("INFINITETALK_BALANCED_DIT_PATH") or None,
             fast_dit_path=os.getenv("INFINITETALK_FAST_DIT_PATH") or None,
-            offload_model=_env_bool("INFINITETALK_OFFLOAD_MODEL", True),
+            lightx2v_root=os.getenv("INFINITETALK_LIGHTX2V_ROOT", "/opt/LightX2V"),
+            lightx2v_attn_mode=os.getenv("INFINITETALK_LIGHTX2V_ATTN_MODE", "flash_attn2"),
+            lightx2v_output_fps=int(os.getenv("INFINITETALK_LIGHTX2V_OUTPUT_FPS", "16")),
+            lightx2v_target_fps=int(os.getenv("INFINITETALK_LIGHTX2V_TARGET_FPS", "16")),
+            lightx2v_video_duration=int(os.getenv("INFINITETALK_LIGHTX2V_VIDEO_DURATION", "360")),
+            lightx2v_offload_granularity=os.getenv(
+                "INFINITETALK_LIGHTX2V_OFFLOAD_GRANULARITY",
+                "block",
+            ),
+            lightx2v_cpu_offload=_env_bool("INFINITETALK_LIGHTX2V_CPU_OFFLOAD", offload_model),
+            lightx2v_text_encoder_offload=_env_bool(
+                "INFINITETALK_LIGHTX2V_TEXT_ENCODER_OFFLOAD",
+                False,
+            ),
+            lightx2v_image_encoder_offload=_env_bool(
+                "INFINITETALK_LIGHTX2V_IMAGE_ENCODER_OFFLOAD",
+                False,
+            ),
+            lightx2v_vae_offload=_env_bool("INFINITETALK_LIGHTX2V_VAE_OFFLOAD", False),
+            lightx2v_audio_encoder_offload=_env_bool(
+                "INFINITETALK_LIGHTX2V_AUDIO_ENCODER_OFFLOAD",
+                False,
+            ),
+            lightx2v_audio_adapter_offload=_env_bool(
+                "INFINITETALK_LIGHTX2V_AUDIO_ADAPTER_OFFLOAD",
+                False,
+            ),
+            lightx2v_use_tiling_vae=_env_bool("INFINITETALK_LIGHTX2V_USE_TILING_VAE", True),
+            lightx2v_quality_model_dir=os.getenv(
+                "INFINITETALK_LIGHTX2V_QUALITY_MODEL_DIR",
+                "/workspace/weights/SekoTalk-Distill",
+            )
+            or None,
+            lightx2v_balanced_model_dir=os.getenv(
+                "INFINITETALK_LIGHTX2V_BALANCED_MODEL_DIR",
+                "/workspace/weights/SekoTalk-Distill-fp8",
+            )
+            or None,
+            lightx2v_fast_model_dir=os.getenv(
+                "INFINITETALK_LIGHTX2V_FAST_MODEL_DIR",
+                "/workspace/weights/SekoTalk-Distill-int8",
+            )
+            or None,
+            offload_model=offload_model,
             num_persistent_param_in_dit=(
                 int(os.getenv("INFINITETALK_NUM_PERSISTENT_PARAM_IN_DIT"))
                 if os.getenv("INFINITETALK_NUM_PERSISTENT_PARAM_IN_DIT")

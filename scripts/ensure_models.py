@@ -149,103 +149,58 @@ def ensure_kokoro() -> None:
 
 def ensure_accelerated_models() -> None:
     auto_download = env_bool("INFINITETALK_AUTO_DOWNLOAD_ACCEL_MODELS", False)
-    token = token_from_env()
     default_preset = os.getenv("INFINITETALK_DEFAULT_PRESET", "base").strip().lower()
-    required_presets = {"quality"} if default_preset in {"quality", "balanced", "fast"} else set()
-    if auto_download and not required_presets:
-        required_presets = {"quality"}
-
-    preset_tasks = {
-        "quality": (
-            Path(
-                os.getenv(
-                    "INFINITETALK_QUALITY_DIT_PATH",
-                    "/workspace/weights/lightx2v/Wan2.1-Distill-Models/wan2.1_i2v_480p_lightx2v_4step.safetensors",
-                )
-            ),
-            os.getenv("INFINITETALK_LIGHTX2V_REPO", "lightx2v/Wan2.1-Distill-Models"),
-            "wan2.1_i2v_480p_lightx2v_4step.safetensors",
-        ),
-        "balanced": (
-            Path(
-                os.getenv(
-                    "INFINITETALK_BALANCED_DIT_PATH",
-                    "/workspace/weights/lightx2v/Wan2.1-Distill-Models/wan2.1_i2v_480p_scaled_fp8_e4m3_lightx2v_4step.safetensors",
-                )
-            ),
-            os.getenv("INFINITETALK_LIGHTX2V_REPO", "lightx2v/Wan2.1-Distill-Models"),
-            "wan2.1_i2v_480p_scaled_fp8_e4m3_lightx2v_4step.safetensors",
-        ),
-        "fast": (
-            Path(
-                os.getenv(
-                    "INFINITETALK_FAST_DIT_PATH",
-                    "/workspace/weights/lightx2v/Wan2.1-Distill-Models/wan2.1_i2v_480p_int8_lightx2v_4step.safetensors",
-                )
-            ),
-            os.getenv("INFINITETALK_LIGHTX2V_REPO", "lightx2v/Wan2.1-Distill-Models"),
-            "wan2.1_i2v_480p_int8_lightx2v_4step.safetensors",
-        ),
-    }
-    shared_tasks = [
-        (
-            Path(
-                os.getenv(
-                    "INFINITETALK_DISTILLED_T5_PATH",
-                    "/workspace/weights/Kijai/WanVideo_comfy/umt5-xxl-enc-fp8_e4m3fn.safetensors",
-                )
-            ),
-            os.getenv("INFINITETALK_COMFY_REPO", "Kijai/WanVideo_comfy"),
-            "umt5-xxl-enc-fp8_e4m3fn.safetensors",
-        ),
-        (
-            Path(
-                os.getenv(
-                    "INFINITETALK_DISTILLED_MODEL_PATH",
-                    "/workspace/weights/Kijai/WanVideo_comfy/InfiniteTalk/Wan2_1-InfiniTetalk-Single_fp16.safetensors",
-                )
-            ),
-            os.getenv("INFINITETALK_COMFY_REPO", "Kijai/WanVideo_comfy"),
-            "InfiniteTalk/Wan2_1-InfiniTetalk-Single_fp16.safetensors",
-        ),
-    ]
-
-    if not auto_download and not required_presets:
+    required_presets = {default_preset} if default_preset in {"quality", "balanced", "fast"} else set()
+    if not required_presets:
         return
 
-    if default_preset in {"balanced", "fast"}:
+    if auto_download:
         log(
-            f"Preset '{default_preset}' currently reuses the BF16 distilled DiT in this API backend. "
-            "Ensuring the quality preset weights are available."
+            "INFINITETALK_AUTO_DOWNLOAD_ACCEL_MODELS=true is ignored for LightX2V presets. "
+            "Mount the official SekoTalk model bundle directories instead."
         )
 
-    model_tasks = list(shared_tasks)
-    model_tasks.extend(preset_tasks[preset] for preset in required_presets)
+    preset_model_dirs = {
+        "quality": Path(
+            os.getenv(
+                "INFINITETALK_LIGHTX2V_QUALITY_MODEL_DIR",
+                "/workspace/weights/SekoTalk-Distill",
+            )
+        ),
+        "balanced": Path(
+            os.getenv(
+                "INFINITETALK_LIGHTX2V_BALANCED_MODEL_DIR",
+                "/workspace/weights/SekoTalk-Distill-fp8",
+            )
+        ),
+        "fast": Path(
+            os.getenv(
+                "INFINITETALK_LIGHTX2V_FAST_MODEL_DIR",
+                "/workspace/weights/SekoTalk-Distill-int8",
+            )
+        ),
+    }
 
     missing_messages: list[str] = []
-    for local_path, repo_id, filename in model_tasks:
-        normalize_downloaded_file(local_path, filename)
-        if local_path.exists():
+    for preset in sorted(required_presets):
+        model_dir = preset_model_dirs[preset]
+        if not model_dir.exists():
+            missing_messages.append(f"missing {model_dir} for preset '{preset}'")
             continue
-        if not auto_download:
-            missing_messages.append(f"missing {local_path}")
+        if not model_dir.is_dir():
+            missing_messages.append(f"{model_dir} for preset '{preset}' is not a directory")
             continue
-        download_dir = local_path.parents[len(Path(filename).parts) - 1]
-        require_parent(local_path)
-        download_file(
-            repo_id,
-            filename,
-            download_dir,
-            token,
-        )
-        normalize_downloaded_file(local_path, filename)
+        if not any(model_dir.iterdir()):
+            missing_messages.append(f"empty model directory {model_dir} for preset '{preset}'")
 
     if missing_messages:
         joined = "; ".join(missing_messages)
         raise FileNotFoundError(
-            "Accelerated preset models are missing. "
-            f"{joined}. Mount them into the container or set "
-            "INFINITETALK_AUTO_DOWNLOAD_ACCEL_MODELS=true."
+            "Accelerated preset model bundles are missing. "
+            f"{joined}. Mount the official LightX2V SekoTalk bundle directories into the "
+            "container and point INFINITETALK_LIGHTX2V_QUALITY_MODEL_DIR / "
+            "INFINITETALK_LIGHTX2V_BALANCED_MODEL_DIR / INFINITETALK_LIGHTX2V_FAST_MODEL_DIR "
+            "at those directories."
         )
 
 
