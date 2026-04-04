@@ -166,10 +166,15 @@ def ensure_kokoro() -> None:
 
 def ensure_accelerated_models() -> None:
     auto_download = env_bool("INFINITETALK_AUTO_DOWNLOAD_ACCEL_MODELS", False)
+    auto_download_all_presets = env_bool("INFINITETALK_AUTO_DOWNLOAD_ALL_ACCEL_PRESETS", False)
     token = token_from_env()
     default_preset = os.getenv("INFINITETALK_DEFAULT_PRESET", "base").strip().lower()
     if default_preset in {"quality", "balanced", "fast"}:
-        required_presets = {"quality", "balanced", "fast"} if auto_download else {default_preset}
+        required_presets = (
+            {"quality", "balanced", "fast"}
+            if auto_download and auto_download_all_presets
+            else {default_preset}
+        )
     else:
         required_presets = set()
     if not required_presets:

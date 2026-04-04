@@ -126,6 +126,7 @@ Accelerated LightX2V preset notes:
 - For two-speaker jobs, `bbox.person1` and `bbox.person2` are required because LightX2V expects per-speaker masks.
 - If the avatar media is a video, the accelerated presets use its first frame as the reference image.
 - The accelerated presets reuse `INFINITETALK_MODEL_PATH` as the SekoTalk audio-adapter weights and expect a LightX2V audio encoder directory at `INFINITETALK_LIGHTX2V_AUDIO_ENCODER_DIR`.
+- Set `INFINITETALK_AUTO_DOWNLOAD_ALL_ACCEL_PRESETS=true` only if you explicitly want startup to prefetch all three accelerated presets. The default behavior is to download only the active preset.
 
 Single-speaker upload example:
 
@@ -232,6 +233,7 @@ docker run --gpus all --rm \
   -e INFINITETALK_DATA_ROOT=/workspace/runtime_data \
   -e INFINITETALK_AUTO_DOWNLOAD_MODELS=true \
   -e INFINITETALK_AUTO_DOWNLOAD_ACCEL_MODELS=true \
+  -e INFINITETALK_AUTO_DOWNLOAD_ALL_ACCEL_PRESETS=false \
   -e INFINITETALK_DEFAULT_PRESET=quality \
   -e INFINITETALK_LIGHTX2V_AUDIO_ENCODER_DIR=/workspace/weights/TencentGameMate-chinese-hubert-large \
   -e INFINITETALK_LIGHTX2V_QUALITY_MODEL_DIR=/workspace/weights/SekoTalk-Distill \
@@ -246,7 +248,8 @@ Notes:
 
 - The container now runs a bootstrap step before `uvicorn`.
 - Missing core models are downloaded automatically when `INFINITETALK_AUTO_DOWNLOAD_MODELS=true`.
-- When `INFINITETALK_AUTO_DOWNLOAD_ACCEL_MODELS=true` and `INFINITETALK_DEFAULT_PRESET` is one of `quality` / `balanced` / `fast`, startup will auto-download all three accelerated preset assets from `lightx2v/Wan2.1-I2V-14B-480P-StepDistill-CfgDistill-Lightx2v` plus `TencentGameMate/chinese-hubert-large` if the target directories are missing.
+- When `INFINITETALK_AUTO_DOWNLOAD_ACCEL_MODELS=true`, startup auto-downloads the active accelerated preset assets from `lightx2v/Wan2.1-I2V-14B-480P-StepDistill-CfgDistill-Lightx2v` plus `TencentGameMate/chinese-hubert-large` if the target directories are missing.
+- Set `INFINITETALK_AUTO_DOWNLOAD_ALL_ACCEL_PRESETS=true` if you want startup to prefetch `quality`, `balanced`, and `fast` together.
 - `quality`, `balanced`, and `fast` now use the official LightX2V `SekoTalk` runner instead of the legacy `WanModel.load_state_dict(...)` path.
 - The LightX2V runner reuses `INFINITETALK_MODEL_PATH` as its audio-adapter checkpoint source.
 - Kokoro TTS weights are optional and controlled by `INFINITETALK_AUTO_DOWNLOAD_KOKORO`.

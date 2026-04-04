@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import sys
+import types
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -10,6 +11,37 @@ import soundfile as sf
 import torch
 
 from wan.utils.multitalk_utils import save_video_ffmpeg
+
+
+def _install_flex_attention_stub() -> None:
+    try:
+        import torch.nn.attention.flex_attention  # type: ignore # noqa: F401
+        return
+    except ModuleNotFoundError:
+        pass
+
+    def _unsupported(*_args, **_kwargs):
+        raise RuntimeError(
+            "This LightX2V build is running on a PyTorch version without "
+            "`torch.nn.attention.flex_attention`. Use `flash_attn2`/`flash_attn3` "
+            "for SekoTalk, or rebuild the image with a newer PyTorch if you need "
+            "FlexAttention-backed sparse attention modes."
+        )
+
+    attention_pkg = sys.modules.get("torch.nn.attention")
+    if attention_pkg is None:
+        attention_pkg = types.ModuleType("torch.nn.attention")
+        attention_pkg.__path__ = []  # type: ignore[attr-defined]
+        sys.modules["torch.nn.attention"] = attention_pkg
+
+    flex_attention_module = types.ModuleType("torch.nn.attention.flex_attention")
+    flex_attention_module.create_block_mask = _unsupported
+    flex_attention_module.flex_attention = _unsupported
+    flex_attention_module.and_masks = _unsupported
+    flex_attention_module.or_masks = _unsupported
+
+    sys.modules["torch.nn.attention.flex_attention"] = flex_attention_module
+    setattr(attention_pkg, "flex_attention", flex_attention_module)
 
 
 @dataclass(slots=True)
@@ -64,6 +96,8 @@ class LightX2VBackend:
         os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
         os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
         os.environ.setdefault("PLATFORM", "cuda")
+
+        _install_flex_attention_stub()
 
         from lightx2v import LightX2VPipeline
         from lightx2v.utils.input_info import init_empty_input_info, update_input_info_from_dict
