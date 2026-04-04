@@ -246,7 +246,7 @@ Notes:
 
 - The container now runs a bootstrap step before `uvicorn`.
 - Missing core models are downloaded automatically when `INFINITETALK_AUTO_DOWNLOAD_MODELS=true`.
-- When `INFINITETALK_AUTO_DOWNLOAD_ACCEL_MODELS=true`, startup will auto-download the default accelerated preset assets from `lightx2v/Wan2.1-I2V-14B-480P-StepDistill-CfgDistill-Lightx2v` plus `TencentGameMate/chinese-hubert-large` if the target directory is missing.
+- When `INFINITETALK_AUTO_DOWNLOAD_ACCEL_MODELS=true` and `INFINITETALK_DEFAULT_PRESET` is one of `quality` / `balanced` / `fast`, startup will auto-download all three accelerated preset assets from `lightx2v/Wan2.1-I2V-14B-480P-StepDistill-CfgDistill-Lightx2v` plus `TencentGameMate/chinese-hubert-large` if the target directories are missing.
 - `quality`, `balanced`, and `fast` now use the official LightX2V `SekoTalk` runner instead of the legacy `WanModel.load_state_dict(...)` path.
 - The LightX2V runner reuses `INFINITETALK_MODEL_PATH` as its audio-adapter checkpoint source.
 - Kokoro TTS weights are optional and controlled by `INFINITETALK_AUTO_DOWNLOAD_KOKORO`.

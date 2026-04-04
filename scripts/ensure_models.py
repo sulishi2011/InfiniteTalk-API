@@ -168,7 +168,10 @@ def ensure_accelerated_models() -> None:
     auto_download = env_bool("INFINITETALK_AUTO_DOWNLOAD_ACCEL_MODELS", False)
     token = token_from_env()
     default_preset = os.getenv("INFINITETALK_DEFAULT_PRESET", "base").strip().lower()
-    required_presets = {default_preset} if default_preset in {"quality", "balanced", "fast"} else set()
+    if default_preset in {"quality", "balanced", "fast"}:
+        required_presets = {"quality", "balanced", "fast"} if auto_download else {default_preset}
+    else:
+        required_presets = set()
     if not required_presets:
         return
 
