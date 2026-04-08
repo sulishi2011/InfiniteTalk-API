@@ -32,7 +32,7 @@ RUN python -m pip install -U xformers==0.0.28 --index-url https://download.pytor
 RUN python -m pip install "misaki[en]" ninja psutil packaging
 RUN python -m pip install flash_attn==2.7.4.post1 --no-build-isolation
 RUN python -m pip install -r requirements-api.txt
-RUN python -m pip install av prometheus-client
+RUN python -m pip install av prometheus-client gguf
 
 COPY . .
 
